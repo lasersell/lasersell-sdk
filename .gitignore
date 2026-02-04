@@ -1,0 +1,48 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Editor settings
+.vscode/
+.idea/
+*.swp
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# General build outputs
+build/
+dist/
+
+# Node / JS
+**/node_modules/
+**/.cache/
+**/.npm/
+**/.pnpm-store/
+**/.yarn/
+**/.turbo/
+**/.parcel-cache/
+**/coverage/
+
+# Rust
+**/target/
+**/*.rs.bk
+
+# Go
+**/bin/
+**/pkg/
+**/coverage.out
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/venv/
