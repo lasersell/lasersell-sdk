@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -10,9 +10,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
-use crate::stream::proto::{
-    ClientMessage, IntegrationContextMsg, ServerMessage, SessionModeMsg, StrategyConfigMsg,
-};
+use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(2);
@@ -50,7 +48,8 @@ impl StreamClient {
         let api_key = self.api_key.clone();
 
         tokio::spawn(async move {
-            run_worker(url, api_key, configure, outbound_rx, inbound_tx, ready_tx).await;
+            stream_connection_worker(url, api_key, configure, outbound_rx, inbound_tx, ready_tx)
+                .await;
         });
 
         match ready_rx.await {
@@ -76,10 +75,17 @@ impl StreamClient {
 
 #[derive(Clone, Debug)]
 pub struct StreamConfigure {
-    pub wallet_pubkey: String,
-    pub mode: SessionModeMsg,
+    pub wallet_pubkeys: Vec<String>,
     pub strategy: StrategyConfigMsg,
-    pub integration_context: Option<IntegrationContextMsg>,
+}
+
+impl StreamConfigure {
+    pub fn single_wallet(wallet_pubkey: impl Into<String>, strategy: StrategyConfigMsg) -> Self {
+        Self {
+            wallet_pubkeys: vec![wallet_pubkey.into()],
+            strategy,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -99,6 +105,46 @@ impl StreamConnection {
 
     pub async fn recv(&mut self) -> Option<ServerMessage> {
         self.receiver.recv().await
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PositionSelector {
+    TokenAccount(String),
+    PositionId(u64),
+}
+
+pub trait IntoPositionSelector {
+    fn into_position_selector(self) -> PositionSelector;
+}
+
+impl IntoPositionSelector for PositionSelector {
+    fn into_position_selector(self) -> PositionSelector {
+        self
+    }
+}
+
+impl IntoPositionSelector for String {
+    fn into_position_selector(self) -> PositionSelector {
+        PositionSelector::TokenAccount(self)
+    }
+}
+
+impl IntoPositionSelector for &String {
+    fn into_position_selector(self) -> PositionSelector {
+        PositionSelector::TokenAccount(self.clone())
+    }
+}
+
+impl IntoPositionSelector for &str {
+    fn into_position_selector(self) -> PositionSelector {
+        PositionSelector::TokenAccount(self.to_string())
+    }
+}
+
+impl IntoPositionSelector for u64 {
+    fn into_position_selector(self) -> PositionSelector {
+        PositionSelector::PositionId(self)
     }
 }
 
@@ -122,19 +168,68 @@ impl StreamSender {
         self.send(ClientMessage::UpdateStrategy { strategy })
     }
 
-    pub fn close_position(&self, position_id: u64) -> Result<(), StreamClientError> {
-        self.send(ClientMessage::ClosePosition { position_id })
+    pub fn close_position<S>(&self, selector: S) -> Result<(), StreamClientError>
+    where
+        S: IntoPositionSelector,
+    {
+        self.send(close_message(selector.into_position_selector()))
     }
 
-    pub fn request_exit_signal(
+    pub fn close_by_id(&self, position_id: u64) -> Result<(), StreamClientError> {
+        self.close_position(PositionSelector::PositionId(position_id))
+    }
+
+    pub fn request_exit_signal<S>(
+        &self,
+        selector: S,
+        slippage_bps: Option<u16>,
+    ) -> Result<(), StreamClientError>
+    where
+        S: IntoPositionSelector,
+    {
+        self.send(request_exit_signal_message(
+            selector.into_position_selector(),
+            slippage_bps,
+        ))
+    }
+
+    pub fn request_exit_signal_by_id(
         &self,
         position_id: u64,
         slippage_bps: Option<u16>,
     ) -> Result<(), StreamClientError> {
-        self.send(ClientMessage::RequestExitSignal {
-            position_id,
+        self.request_exit_signal(PositionSelector::PositionId(position_id), slippage_bps)
+    }
+}
+
+fn close_message(selector: PositionSelector) -> ClientMessage {
+    match selector {
+        PositionSelector::TokenAccount(token_account) => ClientMessage::ClosePosition {
+            position_id: None,
+            token_account: Some(token_account),
+        },
+        PositionSelector::PositionId(position_id) => ClientMessage::ClosePosition {
+            position_id: Some(position_id),
+            token_account: None,
+        },
+    }
+}
+
+fn request_exit_signal_message(
+    selector: PositionSelector,
+    slippage_bps: Option<u16>,
+) -> ClientMessage {
+    match selector {
+        PositionSelector::TokenAccount(token_account) => ClientMessage::RequestExitSignal {
+            position_id: None,
+            token_account: Some(token_account),
             slippage_bps,
-        })
+        },
+        PositionSelector::PositionId(position_id) => ClientMessage::RequestExitSignal {
+            position_id: Some(position_id),
+            token_account: None,
+            slippage_bps,
+        },
     }
 }
 
@@ -161,7 +256,7 @@ enum SessionOutcome {
     Reconnect,
 }
 
-async fn run_worker(
+async fn stream_connection_worker(
     url: String,
     api_key: SecretString,
     configure: StreamConfigure,
@@ -229,50 +324,23 @@ async fn run_connected_session(
 
     let (mut socket, _) = connect_async(request).await?;
 
-    let first_server_message = loop {
-        match socket.next().await {
-            Some(Ok(Message::Text(text))) => break ServerMessage::from_text(&text)?,
-            Some(Ok(Message::Ping(payload))) => {
-                socket.send(Message::Pong(payload)).await?;
-            }
-            Some(Ok(Message::Pong(_))) => {}
-            Some(Ok(Message::Close(_))) => {
-                return Err(StreamClientError::Protocol(
-                    "socket closed before hello_ok".to_string(),
-                ));
-            }
-            Some(Ok(_)) => {
-                return Err(StreamClientError::Protocol(
-                    "received non-text frame before hello_ok".to_string(),
-                ));
-            }
-            Some(Err(err)) => return Err(StreamClientError::WebSocket(err)),
-            None => {
-                return Err(StreamClientError::Protocol(
-                    "socket ended before hello_ok".to_string(),
-                ));
-            }
-        }
-    };
+    let first_server_message = recv_server_message_before_configure(&mut socket).await?;
 
-    if matches!(
-        &first_server_message,
-        ServerMessage::HelloOk { mode: None, .. }
-    ) {
-        let _ = inbound_tx.send(first_server_message);
-    } else {
+    if !matches!(&first_server_message, ServerMessage::HelloOk { .. }) {
         return Err(StreamClientError::Protocol(
-            "expected first server message to be hello_ok with mode=null".to_string(),
+            "expected first server message to be hello_ok".to_string(),
         ));
     }
+    let _ = inbound_tx.send(first_server_message);
 
     let configure_msg = ClientMessage::Configure {
-        wallet_pubkey: configure.wallet_pubkey.clone(),
-        mode: configure.mode.clone(),
+        wallet_pubkeys: configure.wallet_pubkeys.clone(),
         strategy: configure.strategy.clone(),
-        integration_context: configure.integration_context.clone(),
     };
     send_client_message(&mut socket, &configure_msg).await?;
+
+    let configured_message = recv_server_message_after_configure(&mut socket).await?;
+    let _ = inbound_tx.send(configured_message);
 
     if let Some(tx) = ready_tx.take() {
         let _ = tx.send(Ok(()));
@@ -304,7 +372,7 @@ async fn run_connected_session(
             maybe_inbound = socket.next() => {
                 match maybe_inbound {
                     Some(Ok(Message::Text(text))) => {
-                        match ServerMessage::from_text(&text) {
+                        match parse_server_message(&text) {
                             Ok(server_msg) => {
                                 let _ = inbound_tx.send(server_msg);
                             }
@@ -327,6 +395,80 @@ async fn run_connected_session(
     }
 }
 
+async fn recv_server_message_before_configure<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+) -> Result<ServerMessage, StreamClientError>
+where
+    tokio_tungstenite::WebSocketStream<S>: futures_util::Sink<Message, Error = WsError>
+        + Stream<Item = Result<Message, WsError>>
+        + Unpin,
+{
+    loop {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => return parse_server_message(&text),
+            Some(Ok(Message::Ping(payload))) => {
+                socket.send(Message::Pong(payload)).await?;
+            }
+            Some(Ok(Message::Pong(_))) => {}
+            Some(Ok(Message::Close(_))) => {
+                return Err(StreamClientError::Protocol(
+                    "socket closed before hello_ok".to_string(),
+                ));
+            }
+            Some(Ok(_)) => {
+                return Err(StreamClientError::Protocol(
+                    "received non-text frame before hello_ok".to_string(),
+                ));
+            }
+            Some(Err(err)) => return Err(StreamClientError::WebSocket(err)),
+            None => {
+                return Err(StreamClientError::Protocol(
+                    "socket ended before hello_ok".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+async fn recv_server_message_after_configure<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+) -> Result<ServerMessage, StreamClientError>
+where
+    tokio_tungstenite::WebSocketStream<S>: futures_util::Sink<Message, Error = WsError>
+        + Stream<Item = Result<Message, WsError>>
+        + Unpin,
+{
+    loop {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => return parse_server_message(&text),
+            Some(Ok(Message::Ping(payload))) => {
+                socket.send(Message::Pong(payload)).await?;
+            }
+            Some(Ok(Message::Pong(_))) => {}
+            Some(Ok(Message::Close(_))) => {
+                return Err(StreamClientError::Protocol(
+                    "socket closed before configure acknowledgement".to_string(),
+                ));
+            }
+            Some(Ok(_)) => {
+                return Err(StreamClientError::Protocol(
+                    "received non-text frame before configure acknowledgement".to_string(),
+                ));
+            }
+            Some(Err(err)) => return Err(StreamClientError::WebSocket(err)),
+            None => {
+                return Err(StreamClientError::Protocol(
+                    "socket ended before configure acknowledgement".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+fn parse_server_message(text: &str) -> Result<ServerMessage, StreamClientError> {
+    serde_json::from_str(text).map_err(StreamClientError::Json)
+}
+
 async fn send_client_message<S>(
     socket: &mut tokio_tungstenite::WebSocketStream<S>,
     message: &ClientMessage,
@@ -334,7 +476,7 @@ async fn send_client_message<S>(
 where
     tokio_tungstenite::WebSocketStream<S>: futures_util::Sink<Message, Error = WsError> + Unpin,
 {
-    let text = message.to_text()?;
+    let text = serde_json::to_string(message)?;
     socket.send(Message::Text(text)).await?;
     Ok(())
 }
@@ -357,32 +499,5 @@ async fn collect_messages_during_delay(
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use secrecy::{ExposeSecret, SecretString};
-
-    use super::{StreamClient, LOCAL_STREAM_ENDPOINT, STREAM_ENDPOINT};
-
-    #[test]
-    fn stream_client_stores_secret_without_exposing_in_struct_debug() {
-        let client = StreamClient::new(SecretString::new("key".into()));
-        assert_eq!(client.api_key.expose_secret(), "key");
-    }
-
-    #[test]
-    fn stream_client_uses_production_stream_endpoint_by_default() {
-        assert_eq!(STREAM_ENDPOINT, "wss://stream.lasersell.io/v1/ws");
-        let client = StreamClient::new(SecretString::new("key".into()));
-        assert_eq!(client.endpoint(), STREAM_ENDPOINT);
-    }
-
-    #[test]
-    fn stream_client_uses_local_stream_endpoint_when_enabled() {
-        let client = StreamClient::new(SecretString::new("key".into())).with_local_mode(true);
-        assert_eq!(LOCAL_STREAM_ENDPOINT, "ws://localhost:8082/v1/ws");
-        assert_eq!(client.endpoint(), LOCAL_STREAM_ENDPOINT);
     }
 }

@@ -11,9 +11,7 @@ use axum::{Json, Router};
 use futures_util::StreamExt;
 use lasersell_sdk::exit_api::{BuildSellTxRequest, ExitApiClient, SellOutput};
 use lasersell_sdk::stream::client::{StreamClient, StreamConfigure};
-use lasersell_sdk::stream::proto::{
-    ClientMessage, LimitsMsg, ServerMessage, SessionModeMsg, StrategyConfigMsg,
-};
+use lasersell_sdk::stream::proto::{ClientMessage, LimitsMsg, ServerMessage, StrategyConfigMsg};
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -77,10 +75,8 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
     let client = StreamClient::new(SecretString::new(TEST_API_KEY.to_string()));
     let mut connection = client
         .connect(StreamConfigure {
-            wallet_pubkey: TEST_WALLET.to_string(),
-            mode: SessionModeMsg::Integration,
+            wallet_pubkeys: vec![TEST_WALLET.to_string()],
             strategy: expected_strategy,
-            integration_context: None,
         })
         .await
         .expect("connect stream client to mock ws server");
@@ -255,53 +251,53 @@ async fn run_ws_protocol(
                 hi_capacity: 256,
                 pnl_flush_ms: 100,
                 max_positions_per_session: 256,
+                max_wallets_per_session: 8,
+                max_positions_per_wallet: 64,
+                max_sessions_per_api_key: 1,
             },
-            mode: None,
         },
     )
     .await?;
 
     let configure = recv_client_message(&mut socket).await?;
-    let (wallet_pubkey, mode, strategy, integration_context) = match configure {
+    let (wallet_pubkeys, strategy) = match configure {
         ClientMessage::Configure {
-            wallet_pubkey,
-            mode,
             strategy,
-            integration_context,
-        } => (wallet_pubkey, mode, strategy, integration_context),
+            wallet_pubkeys,
+        } => (wallet_pubkeys, strategy),
         other => {
             return Err(format!(
                 "expected first client message to be configure, got {other:?}"
             ));
         }
     };
-    if wallet_pubkey != expected_wallet {
-        return Err("configure wallet_pubkey did not match expected value".to_string());
-    }
-    if mode != SessionModeMsg::Integration {
-        return Err("configure mode should be integration in smoke test".to_string());
+    if wallet_pubkeys != vec![expected_wallet.clone()] {
+        return Err("configure wallet_pubkeys did not match expected value".to_string());
     }
     if strategy != expected_strategy {
         return Err("configure strategy did not match expected value".to_string());
     }
-    if integration_context.is_some() {
-        return Err("integration_context should be omitted for smoke test".to_string());
-    }
 
     let request_exit_signal = recv_client_message(&mut socket).await?;
-    let (position_id, slippage_bps) = match request_exit_signal {
+    let (position_id, token_account, slippage_bps) = match request_exit_signal {
         ClientMessage::RequestExitSignal {
             position_id,
+            token_account,
             slippage_bps,
-        } => (position_id, slippage_bps),
+        } => (position_id, token_account, slippage_bps),
         other => {
             return Err(format!(
                 "expected second client message to be request_exit_signal, got {other:?}"
             ));
         }
     };
-    if position_id != expected_position_id {
+    if position_id != Some(expected_position_id) {
         return Err("request_exit_signal position_id did not match expected value".to_string());
+    }
+    if token_account.is_some() {
+        return Err(
+            "request_exit_signal should not include token_account in smoke test".to_string(),
+        );
     }
     if slippage_bps != expected_slippage_bps {
         return Err("request_exit_signal slippage_bps did not match expected value".to_string());
@@ -311,7 +307,7 @@ async fn run_ws_protocol(
         &mut socket,
         ServerMessage::ExitSignalWithTx {
             session_id: 7,
-            position_id,
+            position_id: expected_position_id,
             wallet_pubkey: expected_wallet.clone(),
             mint: TEST_MINT.to_string(),
             token_account: None,
@@ -329,7 +325,7 @@ async fn run_ws_protocol(
     Ok(WsObserved {
         wallet_pubkey: expected_wallet,
         strategy,
-        position_id,
+        position_id: expected_position_id,
         slippage_bps,
     })
 }

@@ -955,6 +955,7 @@ dependencies = [
  "base64 0.21.7",
  "bincode",
  "futures-util",
+ "lasersell-stream-proto",
  "reqwest",
  "secrecy",
  "serde",
@@ -963,6 +964,14 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.21.0",
+]
+
+[[package]]
+name = "lasersell-stream-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
