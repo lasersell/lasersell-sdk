@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 
 	"github.com/gagliardetto/solana-go"
 	lasersell "github.com/lasersell/lasersell-sdk/go"
@@ -54,13 +55,19 @@ func main() {
 		log.Fatalf("connect stream: %v", err)
 	}
 
+	sender := session.Sender()
+	var submissions sync.WaitGroup
+	var streamErr error
+
 	for {
 		event, err := session.Recv(ctx)
 		if errors.Is(err, io.EOF) {
-			log.Fatalf("stream ended unexpectedly")
+			streamErr = errors.New("stream ended unexpectedly")
+			break
 		}
 		if err != nil {
-			log.Fatalf("stream receive error: %v", err)
+			streamErr = fmt.Errorf("stream receive error: %w", err)
+			break
 		}
 
 		switch msg := event.Message.(type) {
@@ -73,39 +80,50 @@ func main() {
 			)
 
 		case stream.ExitSignalWithTxServerMessage:
-			signedTx, err := lasersell.SignUnsignedTx(msg.UnsignedTxB64, privateKey)
-			if err != nil {
-				log.Printf("sign failed position_id=%d: %v", msg.PositionID, err)
-				continue
-			}
+			// Submit exits concurrently so RPC latency never blocks websocket receive.
+			exitMsg := msg
+			submissions.Add(1)
+			go func() {
+				defer submissions.Done()
 
-			signature, err := lasersell.SendViaHeliusSender(ctx, nil, signedTx)
-			if err != nil {
-				log.Printf(
-					"send failed position_id=%d wallet=%s mint=%s: %v",
-					msg.PositionID,
-					msg.WalletPubkey,
-					msg.Mint,
-					err,
-				)
-				continue
-			}
-
-			fmt.Printf(
-				"submitted exit tx signature=%s wallet=%s mint=%s\n",
-				signature,
-				msg.WalletPubkey,
-				msg.Mint,
-			)
-
-			if closeAfterSubmit {
-				if err := session.Sender().CloseByID(msg.PositionID); err != nil {
-					log.Printf("close failed position_id=%d: %v", msg.PositionID, err)
+				signedTx, err := lasersell.SignUnsignedTx(exitMsg.UnsignedTxB64, privateKey)
+				if err != nil {
+					log.Printf("sign failed position_id=%d: %v", exitMsg.PositionID, err)
+					return
 				}
-			}
+
+				signature, err := lasersell.SendViaHeliusSender(ctx, nil, signedTx)
+				if err != nil {
+					log.Printf(
+						"send failed position_id=%d wallet=%s mint=%s: %v",
+						exitMsg.PositionID,
+						exitMsg.WalletPubkey,
+						exitMsg.Mint,
+						err,
+					)
+					return
+				}
+
+				fmt.Printf(
+					"submitted exit tx signature=%s wallet=%s mint=%s\n",
+					signature,
+					exitMsg.WalletPubkey,
+					exitMsg.Mint,
+				)
+
+				if closeAfterSubmit {
+					if err := sender.CloseByID(exitMsg.PositionID); err != nil {
+						log.Printf("close failed position_id=%d: %v", exitMsg.PositionID, err)
+					}
+				}
+			}()
 
 		case stream.ErrorServerMessage:
 			log.Printf("stream error code=%s message=%s", msg.Code, msg.Message)
 		}
 	}
+
+	log.Printf("stream closed; waiting for in-flight submissions to finish")
+	submissions.Wait()
+	log.Fatal(streamErr)
 }
