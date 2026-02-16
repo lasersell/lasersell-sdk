@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lasersell-sdk"
+version = "0.1.0"
+description = "Python SDK for LaserSell stream and Exit API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "LaserSell" },
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = []
+
+[project.optional-dependencies]
+stream = ["websockets>=12,<16"]
+tx = ["solders>=0.21"]
+full = [
+  "websockets>=12,<16",
+  "solders>=0.21",
+]
+
+[project.urls]
+Homepage = "https://github.com/lasersell/lasersell-sdk"
+Documentation = "https://github.com/lasersell/lasersell-sdk/tree/main/python"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

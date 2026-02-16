@@ -1,0 +1,65 @@
+{
+  "name": "@lasersell/lasersell-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for LaserSell stream and Exit API",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./exit-api": {
+      "types": "./dist/exitApi.d.ts",
+      "import": "./dist/exitApi.js"
+    },
+    "./retry": {
+      "types": "./dist/retry.d.ts",
+      "import": "./dist/retry.js"
+    },
+    "./tx": {
+      "types": "./dist/tx.d.ts",
+      "import": "./dist/tx.js"
+    },
+    "./stream": {
+      "types": "./dist/stream/index.d.ts",
+      "import": "./dist/stream/index.js"
+    },
+    "./stream/client": {
+      "types": "./dist/stream/client.d.ts",
+      "import": "./dist/stream/client.js"
+    },
+    "./stream/proto": {
+      "types": "./dist/stream/proto.d.ts",
+      "import": "./dist/stream/proto.js"
+    },
+    "./stream/session": {
+      "types": "./dist/stream/session.d.ts",
+      "import": "./dist/stream/session.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "examples"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.19",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.8.2"
+  }
+}
