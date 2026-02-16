@@ -1,3 +1,8 @@
+//! Low-level stream websocket client and outbound command sender.
+//!
+//! The client handles initial handshake, configure flow, and automatic
+//! reconnects while keeping an in-memory queue of outbound messages.
+
 use std::collections::VecDeque;
 use std::time::Duration;
 
@@ -14,9 +19,12 @@ use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(2);
+/// Production websocket endpoint for the stream service.
 pub const STREAM_ENDPOINT: &str = "wss://stream.lasersell.io/v1/ws";
+/// Local development websocket endpoint for the stream service.
 pub const LOCAL_STREAM_ENDPOINT: &str = "ws://localhost:8082/v1/ws";
 
+/// Entry point for creating stream connections.
 #[derive(Clone)]
 pub struct StreamClient {
     api_key: SecretString,
@@ -24,6 +32,7 @@ pub struct StreamClient {
 }
 
 impl StreamClient {
+    /// Creates a stream client for production mode.
     pub fn new(api_key: SecretString) -> Self {
         Self {
             api_key,
@@ -31,11 +40,16 @@ impl StreamClient {
         }
     }
 
+    /// Enables or disables local mode endpoint routing.
     pub fn with_local_mode(mut self, local: bool) -> Self {
         self.local = local;
         self
     }
 
+    /// Opens a configured stream connection.
+    ///
+    /// This spawns a background worker that owns the websocket and returns a
+    /// handle pair for sending client messages and receiving server messages.
     pub async fn connect(
         &self,
         configure: StreamConfigure,
@@ -73,13 +87,17 @@ impl StreamClient {
     }
 }
 
+/// Stream configuration sent during initial websocket setup.
 #[derive(Clone, Debug)]
 pub struct StreamConfigure {
+    /// Wallet public keys to track.
     pub wallet_pubkeys: Vec<String>,
+    /// Strategy parameters evaluated server-side.
     pub strategy: StrategyConfigMsg,
 }
 
 impl StreamConfigure {
+    /// Convenience constructor for a single wallet.
     pub fn single_wallet(wallet_pubkey: impl Into<String>, strategy: StrategyConfigMsg) -> Self {
         Self {
             wallet_pubkeys: vec![wallet_pubkey.into()],
@@ -88,6 +106,9 @@ impl StreamConfigure {
     }
 }
 
+/// Active stream connection channels.
+///
+/// Internally, messages are produced by the background websocket worker.
 #[derive(Debug)]
 pub struct StreamConnection {
     sender: StreamSender,
@@ -95,26 +116,34 @@ pub struct StreamConnection {
 }
 
 impl StreamConnection {
+    /// Returns a cloneable sender for client commands.
     pub fn sender(&self) -> StreamSender {
         self.sender.clone()
     }
 
+    /// Splits into sender and raw inbound message receiver.
     pub fn split(self) -> (StreamSender, mpsc::UnboundedReceiver<ServerMessage>) {
         (self.sender, self.receiver)
     }
 
+    /// Receives the next server message from the stream worker.
     pub async fn recv(&mut self) -> Option<ServerMessage> {
         self.receiver.recv().await
     }
 }
 
+/// Selects a position either by token account or numeric position id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PositionSelector {
+    /// Select by token account address.
     TokenAccount(String),
+    /// Select by position id.
     PositionId(u64),
 }
 
+/// Conversion trait for position selector inputs.
 pub trait IntoPositionSelector {
+    /// Converts an input into a canonical [`PositionSelector`].
     fn into_position_selector(self) -> PositionSelector;
 }
 
@@ -148,26 +177,31 @@ impl IntoPositionSelector for u64 {
     }
 }
 
+/// Cloneable sender for outbound stream client messages.
 #[derive(Clone, Debug)]
 pub struct StreamSender {
     tx: mpsc::UnboundedSender<ClientMessage>,
 }
 
 impl StreamSender {
+    /// Sends a raw client message to the stream worker queue.
     pub fn send(&self, message: ClientMessage) -> Result<(), StreamClientError> {
         self.tx
             .send(message)
             .map_err(|_| StreamClientError::SendQueueClosed)
     }
 
+    /// Sends a heartbeat ping with client timestamp.
     pub fn ping(&self, client_time_ms: u64) -> Result<(), StreamClientError> {
         self.send(ClientMessage::Ping { client_time_ms })
     }
 
+    /// Updates strategy parameters for the active stream session.
     pub fn update_strategy(&self, strategy: StrategyConfigMsg) -> Result<(), StreamClientError> {
         self.send(ClientMessage::UpdateStrategy { strategy })
     }
 
+    /// Requests a position close by token account or position id.
     pub fn close_position<S>(&self, selector: S) -> Result<(), StreamClientError>
     where
         S: IntoPositionSelector,
@@ -175,10 +209,15 @@ impl StreamSender {
         self.send(close_message(selector.into_position_selector()))
     }
 
+    /// Convenience wrapper for closing by position id.
     pub fn close_by_id(&self, position_id: u64) -> Result<(), StreamClientError> {
         self.close_position(PositionSelector::PositionId(position_id))
     }
 
+    /// Requests an exit signal by token account or position id.
+    ///
+    /// `slippage_bps` overrides stream strategy slippage for this request when
+    /// provided.
     pub fn request_exit_signal<S>(
         &self,
         selector: S,
@@ -193,6 +232,7 @@ impl StreamSender {
         ))
     }
 
+    /// Convenience wrapper for requesting an exit signal by position id.
     pub fn request_exit_signal_by_id(
         &self,
         position_id: u64,
@@ -233,20 +273,26 @@ fn request_exit_signal_message(
     }
 }
 
+/// Errors produced by stream transport and protocol handling.
 #[derive(Debug, Error)]
 pub enum StreamClientError {
+    /// Websocket transport error.
     #[error("websocket error: {0}")]
     WebSocket(#[from] WsError),
 
+    /// JSON serialization/deserialization error.
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// API key could not be converted to a valid HTTP header value.
     #[error("invalid api-key header: {0}")]
     InvalidApiKeyHeader(#[from] InvalidHeaderValue),
 
+    /// Outbound message queue has been closed.
     #[error("send queue is closed")]
     SendQueueClosed,
 
+    /// Stream protocol or handshake contract error.
     #[error("protocol error: {0}")]
     Protocol(String),
 }

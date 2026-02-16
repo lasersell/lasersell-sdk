@@ -1,3 +1,10 @@
+//! Transaction signing and submission helpers.
+//!
+//! This module provides utilities to:
+//! - sign unsigned base64-encoded Solana transactions,
+//! - encode signed transactions to base64, and
+//! - submit transactions via Helius Sender or a standard RPC endpoint.
+
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
@@ -6,22 +13,29 @@ use solana_sdk::transaction::VersionedTransaction;
 use thiserror::Error;
 
 const ERROR_BODY_SNIPPET_LEN: usize = 220;
+/// Helius Sender endpoint used by [`send_via_helius_sender`] helpers.
 pub const HELIUS_SENDER_FAST_URL: &str = "https://sender.helius-rpc.com/fast";
 
+/// Error returned when signing or submitting a transaction.
 #[derive(Debug, Error)]
 pub enum TxSubmitError {
+    /// Failed to decode the unsigned transaction from base64.
     #[error("decode unsigned tx b64: {0}")]
     DecodeUnsignedTx(base64::DecodeError),
 
+    /// Failed to deserialize the unsigned transaction bytes.
     #[error("deserialize unsigned tx: {0}")]
     DeserializeUnsignedTx(bincode::Error),
 
+    /// Failed to sign the transaction message.
     #[error("sign tx: {0}")]
     SignTx(solana_sdk::signer::SignerError),
 
+    /// Failed to serialize the signed transaction.
     #[error("serialize tx: {0}")]
     SerializeTx(bincode::Error),
 
+    /// HTTP request send phase failed.
     #[error("{target} request send failed ({kind}): {source}")]
     RequestSend {
         target: &'static str,
@@ -30,6 +44,7 @@ pub enum TxSubmitError {
         source: reqwest::Error,
     },
 
+    /// HTTP response body read phase failed.
     #[error("{target} response read failed ({kind}): {source}")]
     ResponseRead {
         target: &'static str,
@@ -38,6 +53,7 @@ pub enum TxSubmitError {
         source: reqwest::Error,
     },
 
+    /// Endpoint returned a non-success HTTP status.
     #[error("{target} http {status}: {body}")]
     HttpStatus {
         target: &'static str,
@@ -45,6 +61,7 @@ pub enum TxSubmitError {
         body: String,
     },
 
+    /// Response body could not be parsed as expected JSON payload.
     #[error("{target} response decode failed: {source}. body={body}")]
     DecodeResponse {
         target: &'static str,
@@ -53,9 +70,11 @@ pub enum TxSubmitError {
         body: String,
     },
 
+    /// JSON-RPC response contained an `error` field.
     #[error("{target} returned error: {error}")]
     RpcError { target: &'static str, error: String },
 
+    /// JSON-RPC response did not contain a valid signature result.
     #[error("{target} response missing signature: {response}")]
     MissingResult {
         target: &'static str,
@@ -63,6 +82,10 @@ pub enum TxSubmitError {
     },
 }
 
+/// Decodes and signs an unsigned base64-encoded transaction.
+///
+/// The function expects a serialized `VersionedTransaction` payload encoded as
+/// standard base64.
 pub fn sign_unsigned_tx(
     unsigned_tx_b64: &str,
     keypair: &Keypair,
@@ -75,11 +98,13 @@ pub fn sign_unsigned_tx(
     VersionedTransaction::try_new(unsigned.message, &[keypair]).map_err(TxSubmitError::SignTx)
 }
 
+/// Serializes a signed transaction to standard base64.
 pub fn encode_signed_tx(tx: &VersionedTransaction) -> Result<String, TxSubmitError> {
     let raw = bincode::serialize(tx).map_err(TxSubmitError::SerializeTx)?;
     Ok(BASE64_STANDARD.encode(raw))
 }
 
+/// Submits a signed transaction to Helius Sender and returns its signature.
 pub async fn send_via_helius_sender(
     client: &Client,
     tx: &VersionedTransaction,
@@ -88,6 +113,7 @@ pub async fn send_via_helius_sender(
     send_via_helius_sender_b64(client, &tx_b64).await
 }
 
+/// Submits a signed transaction to a standard Solana RPC endpoint.
 pub async fn send_via_rpc(
     client: &Client,
     rpc_url: &str,
@@ -97,6 +123,7 @@ pub async fn send_via_rpc(
     send_via_rpc_b64(client, rpc_url, &tx_b64).await
 }
 
+/// Submits a signed transaction already encoded as base64 via Helius Sender.
 pub async fn send_via_helius_sender_b64(
     client: &Client,
     tx_b64: &str,
@@ -111,6 +138,7 @@ pub async fn send_via_helius_sender_b64(
     .await
 }
 
+/// Submits a signed transaction already encoded as base64 via RPC.
 pub async fn send_via_rpc_b64(
     client: &Client,
     rpc_url: &str,

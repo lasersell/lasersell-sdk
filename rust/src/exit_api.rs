@@ -1,3 +1,8 @@
+//! Exit API client and request/response types.
+//!
+//! The Exit API builds unsigned buy/sell transactions that can be signed and
+//! submitted by the caller.
+
 use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
@@ -10,24 +15,36 @@ use crate::retry::{retry_async, RetryPolicy};
 use crate::stream::proto::MarketContextMsg;
 
 const ERROR_BODY_SNIPPET_LEN: usize = 220;
+/// Production base URL for the LaserSell Exit API.
 pub const EXIT_API_BASE_URL: &str = "https://api.lasersell.io";
+/// Local development base URL for the Exit API.
 pub const LOCAL_EXIT_API_BASE_URL: &str = "http://localhost:8080";
 
+/// Default tuning values used by [`ExitApiClientOptions::default`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExitApiDefaults;
 
 impl ExitApiDefaults {
+    /// Default TCP connect timeout for new HTTP connections.
     pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
+    /// Default per-attempt request timeout.
     pub const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(900);
+    /// Default maximum number of attempts per request.
     pub const MAX_ATTEMPTS: usize = 2;
+    /// Default initial and maximum backoff delay.
     pub const BACKOFF: Duration = Duration::from_millis(25);
+    /// Default jitter upper bound added to backoff delays.
     pub const JITTER: Duration = Duration::from_millis(25);
 }
 
+/// Configuration options for constructing an [`ExitApiClient`].
 #[derive(Clone, Debug)]
 pub struct ExitApiClientOptions {
+    /// Connection timeout applied when building the underlying HTTP client.
     pub connect_timeout: Duration,
+    /// Timeout applied to each individual HTTP attempt.
     pub attempt_timeout: Duration,
+    /// Retry policy used for transient request failures.
     pub retry_policy: RetryPolicy,
 }
 
@@ -46,6 +63,7 @@ impl Default for ExitApiClientOptions {
     }
 }
 
+/// HTTP client for building unsigned buy/sell transactions.
 #[derive(Clone)]
 pub struct ExitApiClient {
     http: Client,
@@ -56,14 +74,17 @@ pub struct ExitApiClient {
 }
 
 impl ExitApiClient {
+    /// Creates a client without an API key using default options.
     pub fn new() -> Result<Self, ExitApiError> {
         Self::with_options(None, ExitApiClientOptions::default())
     }
 
+    /// Creates a client with an API key using default options.
     pub fn with_api_key(api_key: SecretString) -> Result<Self, ExitApiError> {
         Self::with_options(Some(api_key), ExitApiClientOptions::default())
     }
 
+    /// Creates a client with explicit API key and transport options.
     pub fn with_options(
         api_key: Option<SecretString>,
         options: ExitApiClientOptions,
@@ -83,11 +104,16 @@ impl ExitApiClient {
         })
     }
 
+    /// Enables or disables local mode.
+    ///
+    /// When `local` is `true`, requests are sent to
+    /// [`LOCAL_EXIT_API_BASE_URL`] instead of [`EXIT_API_BASE_URL`].
     pub fn with_local_mode(mut self, local: bool) -> Self {
         self.local = local;
         self
     }
 
+    /// Builds an unsigned sell transaction.
     pub async fn build_sell_tx(
         &self,
         request: &BuildSellTxRequest,
@@ -95,6 +121,8 @@ impl ExitApiClient {
         self.build_tx("/v1/sell", request).await
     }
 
+    /// Builds an unsigned sell transaction and returns only base64 transaction
+    /// data.
     pub async fn build_sell_tx_b64(
         &self,
         request: &BuildSellTxRequest,
@@ -102,6 +130,7 @@ impl ExitApiClient {
         Ok(self.build_sell_tx(request).await?.tx)
     }
 
+    /// Builds an unsigned buy transaction.
     pub async fn build_buy_tx(
         &self,
         request: &BuildBuyTxRequest,
@@ -170,69 +199,98 @@ impl ExitApiClient {
     }
 }
 
+/// Request payload for `POST /v1/sell`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BuildSellTxRequest {
+    /// Mint address of the token being sold.
     pub mint: String,
+    /// Trader wallet public key.
     pub user_pubkey: String,
+    /// Amount of tokens to sell in mint atomic units.
     pub amount_tokens: u64,
+    /// Optional max slippage in basis points.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slippage_bps: Option<u16>,
+    /// Optional backend mode override.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Desired output asset for sell proceeds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<SellOutput>,
+    /// Optional referral identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub referral_id: Option<String>,
+    /// Optional market routing hint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market_context: Option<MarketContextMsg>,
 }
 
+/// Request payload for `POST /v1/buy`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BuildBuyTxRequest {
+    /// Mint address of the token being bought.
     pub mint: String,
+    /// Trader wallet public key.
     pub user_pubkey: String,
+    /// Buy amount in quote-asset atomic units.
     pub amount_quote_units: u64,
+    /// Optional max slippage in basis points.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slippage_bps: Option<u16>,
+    /// Optional backend mode override.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Optional referral identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub referral_id: Option<String>,
 }
 
+/// Preferred output asset for sell requests.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum SellOutput {
+    /// Return proceeds as SOL.
     #[serde(rename = "SOL")]
     Sol,
+    /// Return proceeds as USD1.
     #[serde(rename = "USD1")]
     Usd1,
 }
 
+/// Common response payload returned by buy/sell build endpoints.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BuildTxResponse {
+    /// Unsigned transaction serialized as base64.
     pub tx: String,
+    /// Optional route metadata from the routing engine.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub route: Option<Value>,
+    /// Optional debug payload emitted by the backend.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debug: Option<Value>,
 }
 
+/// Exit API request/response errors.
 #[derive(Debug, Error)]
 pub enum ExitApiError {
+    /// Transport-layer request failure (connect/timeout/send/read).
     #[error("request failed: {0}")]
     Transport(reqwest::Error),
 
+    /// Non-success HTTP status with trimmed response details.
     #[error("http status {status}: {body}")]
     HttpStatus { status: StatusCode, body: String },
 
+    /// Envelope-style response reported non-`ok` status.
     #[error("exit-api status {status}: {detail}")]
     EnvelopeStatus { status: String, detail: String },
 
+    /// Response payload could not be parsed into a supported schema.
     #[error("failed to parse response: {0}")]
     Parse(String),
 }
 
 impl ExitApiError {
+    /// Returns `true` when the error is likely transient and safe to retry.
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Transport(err) => err.is_timeout() || err.is_connect(),

@@ -1,3 +1,8 @@
+//! Higher-level stream session wrapper with position tracking.
+//!
+//! `StreamSession` consumes raw stream messages and emits typed events while
+//! maintaining an in-memory map of known positions.
+
 use std::collections::HashMap;
 
 use crate::stream::client::{
@@ -6,14 +11,22 @@ use crate::stream::client::{
 };
 use crate::stream::proto::ServerMessage;
 
+/// Snapshot of a tracked stream position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PositionHandle {
+    /// Numeric position identifier.
     pub position_id: u64,
+    /// Token account associated with the position.
     pub token_account: String,
+    /// Wallet that owns the position.
     pub wallet_pubkey: String,
+    /// Mint address for the token position.
     pub mint: String,
+    /// Optional token program identifier.
     pub token_program: Option<String>,
+    /// Token balance in atomic units at open.
     pub tokens: u64,
+    /// Entry quote amount in atomic units.
     pub entry_quote_units: u64,
 }
 
@@ -29,27 +42,42 @@ impl IntoPositionSelector for &PositionHandle {
     }
 }
 
+/// Session-level event emitted by [`StreamSession::recv`].
 #[derive(Clone, Debug)]
 pub enum StreamEvent {
+    /// Raw message that did not map to a higher-level event.
     Message(ServerMessage),
+    /// Position was opened and inserted into session state.
     PositionOpened {
+        /// Resolved position handle.
         handle: PositionHandle,
+        /// Original underlying server message.
         message: ServerMessage,
     },
+    /// Position was closed and removed from session state.
     PositionClosed {
+        /// Resolved position handle if known.
         handle: Option<PositionHandle>,
+        /// Original underlying server message.
         message: ServerMessage,
     },
+    /// Exit signal with unsigned transaction payload.
     ExitSignalWithTx {
+        /// Resolved position handle if known.
         handle: Option<PositionHandle>,
+        /// Original underlying server message.
         message: ServerMessage,
     },
+    /// PnL update for an active position.
     PnlUpdate {
+        /// Resolved position handle if known.
         handle: Option<PositionHandle>,
+        /// Original underlying server message.
         message: ServerMessage,
     },
 }
 
+/// Stateful wrapper around a stream connection.
 #[derive(Debug)]
 pub struct StreamSession {
     connection: StreamConnection,
@@ -57,6 +85,7 @@ pub struct StreamSession {
 }
 
 impl StreamSession {
+    /// Connects a new stream session and initializes empty position state.
     pub async fn connect(
         client: &StreamClient,
         configure: StreamConfigure,
@@ -65,6 +94,7 @@ impl StreamSession {
         Ok(Self::from_connection(connection))
     }
 
+    /// Creates a session from an existing low-level connection.
     pub fn from_connection(connection: StreamConnection) -> Self {
         Self {
             connection,
@@ -72,14 +102,17 @@ impl StreamSession {
         }
     }
 
+    /// Returns a cloneable sender for outbound stream commands.
     pub fn sender(&self) -> StreamSender {
         self.connection.sender()
     }
 
+    /// Returns all currently tracked positions.
     pub fn positions(&self) -> Vec<PositionHandle> {
         self.positions.values().cloned().collect()
     }
 
+    /// Returns tracked positions for a specific wallet and mint pair.
     pub fn positions_for_wallet_mint(&self, wallet: &str, mint: &str) -> Vec<PositionHandle> {
         self.positions
             .values()
@@ -88,10 +121,15 @@ impl StreamSession {
             .collect()
     }
 
+    /// Requests close for a tracked position.
     pub fn close(&self, handle: &PositionHandle) -> Result<(), StreamClientError> {
         self.sender().close_position(handle)
     }
 
+    /// Requests an exit signal for a tracked position.
+    ///
+    /// `slippage_bps` overrides strategy slippage for this request when
+    /// provided.
     pub fn request_exit_signal(
         &self,
         handle: &PositionHandle,
@@ -100,6 +138,7 @@ impl StreamSession {
         self.sender().request_exit_signal(handle, slippage_bps)
     }
 
+    /// Receives the next message and maps it into a typed [`StreamEvent`].
     pub async fn recv(&mut self) -> Option<StreamEvent> {
         let message = self.connection.recv().await?;
         Some(self.apply_message(message))

@@ -1,15 +1,26 @@
+//! Retry and timeout utilities.
+//!
+//! The helpers in this module are transport-agnostic and are used by clients
+//! that need bounded retries with lightweight jitter.
+
 use std::future::Future;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// Policy controlling retry attempts and exponential backoff behavior.
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
+    /// Maximum number of attempts including the first attempt.
     pub max_attempts: usize,
+    /// Delay used before the first retry.
     pub initial_backoff: Duration,
+    /// Upper bound for exponential backoff delay growth.
     pub max_backoff: Duration,
+    /// Maximum random jitter added to each retry delay.
     pub jitter: Duration,
 }
 
 impl RetryPolicy {
+    /// Returns a low-latency default suitable for short-lived API requests.
     pub fn low_latency() -> Self {
         Self {
             max_attempts: 2,
@@ -19,6 +30,9 @@ impl RetryPolicy {
         }
     }
 
+    /// Computes the delay to apply before the given retry attempt.
+    ///
+    /// `attempt` is 1-based and should correspond to the current attempt index.
     pub fn delay_for_attempt(&self, attempt: usize) -> Duration {
         let mut delay = self.initial_backoff;
         for _ in 1..attempt {
@@ -34,6 +48,11 @@ impl Default for RetryPolicy {
     }
 }
 
+/// Executes an async operation with retry behavior controlled by `policy`.
+///
+/// `op` receives the 1-based attempt number and must return a future that
+/// resolves to the operation result. `should_retry` determines whether each
+/// error is retryable.
 pub async fn retry_async<T, E, Op, Fut, ShouldRetry>(
     policy: &RetryPolicy,
     mut op: Op,
@@ -65,6 +84,7 @@ where
     unreachable!("max_attempts is always at least 1")
 }
 
+/// Applies a timeout to an async computation.
 pub async fn with_timeout<T, Fut>(
     timeout: Duration,
     future: Fut,
