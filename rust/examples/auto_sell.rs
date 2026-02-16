@@ -3,7 +3,7 @@ use std::error::Error;
 use lasersell_sdk::stream::client::{StreamClient, StreamConfigure};
 use lasersell_sdk::stream::proto::{ServerMessage, StrategyConfigMsg};
 use lasersell_sdk::stream::session::{StreamEvent, StreamSession};
-use lasersell_sdk::tx::{send_via_rpc, sign_unsigned_tx};
+use lasersell_sdk::tx::{send_via_helius_sender, sign_unsigned_tx};
 use secrecy::SecretString;
 use solana_sdk::signature::read_keypair_file;
 
@@ -14,7 +14,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         "REPLACE_WITH_WALLET_PUBKEY_2".to_string(),
     ];
     let keypair_path = "REPLACE_WITH_KEYPAIR_PATH".to_string();
-    let rpc_url = "REPLACE_WITH_RPC_URL".to_string();
     let close_after_submit = false;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -60,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         },
                 } => {
                     let signed_tx = sign_unsigned_tx(&unsigned_tx_b64, &keypair)?;
-                    let signature = send_via_rpc(&http, &rpc_url, &signed_tx).await?;
+                    let signature = send_via_helius_sender(&http, &signed_tx).await?;
                     println!(
                         "submitted exit tx signature={signature} wallet={wallet_pubkey} mint={mint}"
                     );
