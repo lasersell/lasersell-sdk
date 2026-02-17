@@ -92,3 +92,8 @@ For local development, enable local mode in your script:
 
 - Exit API: `ExitApiClient.with_api_key(...).with_local_mode(True)` -> `http://localhost:8080`
 - Stream: `StreamClient(...).with_local_mode(True)` -> `ws://localhost:8082/v1/ws`
+
+For custom environments, use explicit overrides:
+
+- Exit API: `ExitApiClient.with_api_key(...).with_base_url("https://api-dev.example")`
+- Stream: `StreamClient(...).with_endpoint("wss://stream-dev.example/v1/ws")`

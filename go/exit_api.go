@@ -62,11 +62,13 @@ func DefaultExitAPIClientOptions() ExitAPIClientOptions {
 
 // ExitAPIClient builds unsigned buy/sell transactions via HTTP.
 type ExitAPIClient struct {
-	http           *http.Client
-	apiKey         string
-	attemptTimeout time.Duration
-	retryPolicy    RetryPolicy
-	local          bool
+	http               *http.Client
+	apiKey             string
+	attemptTimeout     time.Duration
+	retryPolicy        RetryPolicy
+	local              bool
+	baseURLOverride    string
+	hasBaseURLOverride bool
 }
 
 // NewExitAPIClient creates a client without an API key using default options.
@@ -106,6 +108,15 @@ func NewExitAPIClientWithOptions(apiKey string, options ExitAPIClientOptions) *E
 // When local is true, requests are sent to LocalExitAPIBaseURL.
 func (c *ExitAPIClient) WithLocalMode(local bool) *ExitAPIClient {
 	c.local = local
+	return c
+}
+
+// WithBaseURL sets an explicit Exit API base URL override.
+//
+// The override takes precedence over local mode when set.
+func (c *ExitAPIClient) WithBaseURL(baseURL string) *ExitAPIClient {
+	c.baseURLOverride = strings.TrimRight(baseURL, "/")
+	c.hasBaseURLOverride = true
 	return c
 }
 
@@ -253,6 +264,9 @@ func (c *ExitAPIClient) endpoint(path string) string {
 }
 
 func (c *ExitAPIClient) baseURL() string {
+	if c.hasBaseURLOverride {
+		return c.baseURLOverride
+	}
 	if c.local {
 		return LocalExitAPIBaseURL
 	}

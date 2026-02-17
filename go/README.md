@@ -84,6 +84,13 @@ This switches endpoints to:
 - Exit API: `http://localhost:8080`
 - Stream: `ws://localhost:8082/v1/ws`
 
+To target custom environments directly, use explicit overrides:
+
+```go
+exitClient := lasersell.NewExitAPIClientWithAPIKey(apiKey).WithBaseURL("https://api-dev.example")
+streamClient := stream.NewStreamClient(apiKey).WithEndpoint("wss://stream-dev.example/v1/ws")
+```
+
 ## API notes
 
 - Use `context.Context` on all network operations to control cancellation/timeouts.

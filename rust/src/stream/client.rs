@@ -29,6 +29,7 @@ pub const LOCAL_STREAM_ENDPOINT: &str = "ws://localhost:8082/v1/ws";
 pub struct StreamClient {
     api_key: SecretString,
     local: bool,
+    endpoint_override: Option<String>,
 }
 
 impl StreamClient {
@@ -37,12 +38,22 @@ impl StreamClient {
         Self {
             api_key,
             local: false,
+            endpoint_override: None,
         }
     }
 
     /// Enables or disables local mode endpoint routing.
     pub fn with_local_mode(mut self, local: bool) -> Self {
         self.local = local;
+        self
+    }
+
+    /// Sets an explicit stream endpoint override.
+    ///
+    /// The override takes precedence over local mode when set.
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        let endpoint = endpoint.into();
+        self.endpoint_override = Some(endpoint.trim_end().to_string());
         self
     }
 
@@ -78,7 +89,10 @@ impl StreamClient {
         }
     }
 
-    fn endpoint(&self) -> &'static str {
+    fn endpoint(&self) -> &str {
+        if let Some(endpoint) = self.endpoint_override.as_deref() {
+            return endpoint;
+        }
         if self.local {
             LOCAL_STREAM_ENDPOINT
         } else {
@@ -545,5 +559,33 @@ async fn collect_messages_during_delay(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use secrecy::SecretString;
+
+    use super::{StreamClient, LOCAL_STREAM_ENDPOINT, STREAM_ENDPOINT};
+
+    #[test]
+    fn stream_client_uses_production_endpoint_by_default() {
+        let client = StreamClient::new(SecretString::new("test-api-key".to_string()));
+        assert_eq!(client.endpoint(), STREAM_ENDPOINT);
+    }
+
+    #[test]
+    fn stream_client_uses_local_endpoint_when_enabled() {
+        let client =
+            StreamClient::new(SecretString::new("test-api-key".to_string())).with_local_mode(true);
+        assert_eq!(client.endpoint(), LOCAL_STREAM_ENDPOINT);
+    }
+
+    #[test]
+    fn stream_client_endpoint_override_takes_precedence() {
+        let client = StreamClient::new(SecretString::new("test-api-key".to_string()))
+            .with_local_mode(true)
+            .with_endpoint("wss://stream-dev.example/ws   \n");
+        assert_eq!(client.endpoint(), "wss://stream-dev.example/ws");
     }
 }

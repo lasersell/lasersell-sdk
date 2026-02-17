@@ -71,6 +71,7 @@ pub struct ExitApiClient {
     attempt_timeout: Duration,
     retry_policy: RetryPolicy,
     local: bool,
+    base_url_override: Option<String>,
 }
 
 impl ExitApiClient {
@@ -101,6 +102,7 @@ impl ExitApiClient {
             attempt_timeout: options.attempt_timeout,
             retry_policy: options.retry_policy,
             local: false,
+            base_url_override: None,
         })
     }
 
@@ -110,6 +112,15 @@ impl ExitApiClient {
     /// [`LOCAL_EXIT_API_BASE_URL`] instead of [`EXIT_API_BASE_URL`].
     pub fn with_local_mode(mut self, local: bool) -> Self {
         self.local = local;
+        self
+    }
+
+    /// Sets an explicit Exit API base URL override.
+    ///
+    /// The override takes precedence over local mode when set.
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        let base_url = base_url.into();
+        self.base_url_override = Some(base_url.trim_end_matches('/').to_string());
         self
     }
 
@@ -161,7 +172,10 @@ impl ExitApiClient {
         format!("{}{}", self.base_url(), path)
     }
 
-    fn base_url(&self) -> &'static str {
+    fn base_url(&self) -> &str {
+        if let Some(base_url) = self.base_url_override.as_deref() {
+            return base_url;
+        }
         if self.local {
             LOCAL_EXIT_API_BASE_URL
         } else {
@@ -493,5 +507,19 @@ mod tests {
             .with_local_mode(true);
         assert_eq!(LOCAL_EXIT_API_BASE_URL, "http://localhost:8080");
         assert_eq!(client.base_url(), LOCAL_EXIT_API_BASE_URL);
+    }
+
+    #[test]
+    fn exit_api_client_override_base_url_takes_precedence() {
+        let client = ExitApiClient::with_options(None, ExitApiClientOptions::default())
+            .expect("build client")
+            .with_local_mode(true)
+            .with_base_url("https://api-dev.example///");
+
+        assert_eq!(client.base_url(), "https://api-dev.example");
+        assert_eq!(
+            client.endpoint("/v1/sell"),
+            "https://api-dev.example/v1/sell"
+        );
     }
 }

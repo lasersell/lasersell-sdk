@@ -136,6 +136,7 @@ export class ExitApiClient {
   private readonly retryPolicy: RetryPolicy;
   private readonly fetchImpl: FetchLike;
   private local = false;
+  private baseUrlOverride?: string;
 
   constructor(
     apiKey?: string,
@@ -179,6 +180,11 @@ export class ExitApiClient {
     return this;
   }
 
+  withBaseUrl(baseUrl: string): this {
+    this.baseUrlOverride = baseUrl.trim().replace(/\/+$/, "");
+    return this;
+  }
+
   async buildSellTx(request: BuildSellTxRequest): Promise<BuildTxResponse> {
     return await this.buildTx("/v1/sell", request);
   }
@@ -210,6 +216,9 @@ export class ExitApiClient {
   }
 
   private baseUrl(): string {
+    if (this.baseUrlOverride !== undefined) {
+      return this.baseUrlOverride;
+    }
     if (this.local) {
       return LOCAL_EXIT_API_BASE_URL;
     }

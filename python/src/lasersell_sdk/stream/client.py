@@ -81,11 +81,18 @@ class StreamClient:
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
         self._local = False
+        self._endpoint_override: str | None = None
 
     def with_local_mode(self, local: bool) -> "StreamClient":
         """Enables or disables local mode endpoint routing."""
 
         self._local = local
+        return self
+
+    def with_endpoint(self, endpoint: str) -> "StreamClient":
+        """Sets an explicit stream endpoint override."""
+
+        self._endpoint_override = endpoint.rstrip()
         return self
 
     async def connect(self, configure: StreamConfigure) -> "StreamConnection":
@@ -96,6 +103,8 @@ class StreamClient:
         return StreamConnection(worker)
 
     def _endpoint(self) -> str:
+        if self._endpoint_override is not None:
+            return self._endpoint_override
         if self._local:
             return LOCAL_STREAM_ENDPOINT
         return STREAM_ENDPOINT

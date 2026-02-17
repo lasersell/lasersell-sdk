@@ -190,6 +190,7 @@ class ExitApiClient:
         self._attempt_timeout_s = resolved_options.attempt_timeout_s
         self._retry_policy = resolved_options.retry_policy
         self._local = False
+        self._base_url_override: str | None = None
 
         # Keep parity with Rust no_proxy client behavior.
         self._opener = urllib_request.build_opener(urllib_request.ProxyHandler({}))
@@ -210,6 +211,12 @@ class ExitApiClient:
         """Enables or disables local mode endpoint routing."""
 
         self._local = local
+        return self
+
+    def with_base_url(self, base_url: str) -> "ExitApiClient":
+        """Sets an explicit Exit API base URL override."""
+
+        self._base_url_override = base_url.rstrip("/")
         return self
 
     async def build_sell_tx(self, request: BuildSellTxRequest) -> BuildTxResponse:
@@ -249,6 +256,8 @@ class ExitApiClient:
         return f"{self._base_url()}{path}"
 
     def _base_url(self) -> str:
+        if self._base_url_override is not None:
+            return self._base_url_override
         if self._local:
             return LOCAL_EXIT_API_BASE_URL
         return EXIT_API_BASE_URL

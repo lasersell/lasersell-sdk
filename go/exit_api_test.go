@@ -99,3 +99,30 @@ func TestBuildSellRequestSerializesAmountTokensContract(t *testing.T) {
 		t.Fatalf("expected output=SOL, got %#v", encoded["output"])
 	}
 }
+
+func TestExitAPIClientUsesProductionBaseURLByDefault(t *testing.T) {
+	client := NewExitAPIClient()
+	if got := client.baseURL(); got != ExitAPIBaseURL {
+		t.Fatalf("expected production base URL %q, got %q", ExitAPIBaseURL, got)
+	}
+}
+
+func TestExitAPIClientUsesLocalBaseURLWhenEnabled(t *testing.T) {
+	client := NewExitAPIClient().WithLocalMode(true)
+	if got := client.baseURL(); got != LocalExitAPIBaseURL {
+		t.Fatalf("expected local base URL %q, got %q", LocalExitAPIBaseURL, got)
+	}
+}
+
+func TestExitAPIClientBaseURLOverrideTakesPrecedence(t *testing.T) {
+	client := NewExitAPIClient().
+		WithLocalMode(true).
+		WithBaseURL("https://api-dev.example///")
+
+	if got := client.baseURL(); got != "https://api-dev.example" {
+		t.Fatalf("expected normalized override base URL, got %q", got)
+	}
+	if got := client.endpoint("/v1/sell"); got != "https://api-dev.example/v1/sell" {
+		t.Fatalf("unexpected endpoint URL: %q", got)
+	}
+}

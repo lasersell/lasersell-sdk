@@ -71,6 +71,7 @@ Notes:
 - `amount_tokens` is in token atomic units (smallest unit for the mint).
 - `slippage_bps` is basis points (`100` = `1%`, `2000` = `20%`).
 - Use `client.with_local_mode(True)` for local Exit API development (`http://localhost:8080`).
+- Use `client.with_base_url("https://api-dev.example")` to target a custom Exit API base URL.
 
 ## Stream + auto-sell flow
 
@@ -116,6 +117,7 @@ asyncio.run(main())
 Notes:
 
 - Use `client.with_local_mode(True)` for local stream development (`ws://localhost:8082/v1/ws`).
+- Use `client.with_endpoint("wss://stream-dev.example/v1/ws")` to target a custom stream endpoint.
 - `unsigned_tx_b64` from stream events can be signed with `lasersell_sdk.tx.sign_unsigned_tx`.
 
 ## Examples

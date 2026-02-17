@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"nhooyr.io/websocket"
 )
@@ -134,8 +136,10 @@ func (s PositionSelector) validate() error {
 
 // StreamClient creates stream websocket connections.
 type StreamClient struct {
-	apiKey string
-	local  bool
+	apiKey              string
+	local               bool
+	endpointOverride    string
+	hasEndpointOverride bool
 }
 
 // NewStreamClient creates a production-mode stream client.
@@ -149,6 +153,15 @@ func (c *StreamClient) WithLocalMode(local bool) *StreamClient {
 	return c
 }
 
+// WithEndpoint sets an explicit stream endpoint override.
+//
+// The override takes precedence over local mode when set.
+func (c *StreamClient) WithEndpoint(endpoint string) *StreamClient {
+	c.endpointOverride = strings.TrimRightFunc(endpoint, unicode.IsSpace)
+	c.hasEndpointOverride = true
+	return c
+}
+
 // Connect opens and configures a stream connection.
 func (c *StreamClient) Connect(ctx context.Context, configure StreamConfigure) (*StreamConnection, error) {
 	worker := newStreamConnectionWorker(c.endpoint(), c.apiKey, configure)
@@ -159,6 +172,9 @@ func (c *StreamClient) Connect(ctx context.Context, configure StreamConfigure) (
 }
 
 func (c *StreamClient) endpoint() string {
+	if c.hasEndpointOverride {
+		return c.endpointOverride
+	}
 	if c.local {
 		return LocalStreamEndpoint
 	}

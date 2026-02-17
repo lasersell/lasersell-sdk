@@ -10,7 +10,6 @@ import {
 
 const MIN_RECONNECT_BACKOFF_MS = 100;
 const MAX_RECONNECT_BACKOFF_MS = 2_000;
-const FRAME_IDLE_SLEEP_MS = 10;
 
 export const STREAM_ENDPOINT = "wss://stream.lasersell.io/v1/ws";
 export const LOCAL_STREAM_ENDPOINT = "ws://localhost:8082/v1/ws";
@@ -99,6 +98,7 @@ export class StreamClientError extends Error {
 export class StreamClient {
   private readonly apiKey: string;
   private local = false;
+  private endpointOverride?: string;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
@@ -106,6 +106,11 @@ export class StreamClient {
 
   withLocalMode(local: boolean): this {
     this.local = local;
+    return this;
+  }
+
+  withEndpoint(endpoint: string): this {
+    this.endpointOverride = endpoint.trimEnd();
     return this;
   }
 
@@ -120,6 +125,9 @@ export class StreamClient {
   }
 
   private endpoint(): string {
+    if (this.endpointOverride !== undefined) {
+      return this.endpointOverride;
+    }
     if (this.local) {
       return LOCAL_STREAM_ENDPOINT;
     }
@@ -302,7 +310,7 @@ class StreamConnectionWorker {
   private readonly apiKey: string;
   private readonly configure: StreamConfigure;
   private readonly inbound = new AsyncQueue<ServerMessage>();
-  private readonly outbound: ClientMessage[] = [];
+  private readonly outbound = new AsyncQueue<ClientMessage>();
 
   private currentSocket: WebSocket | null = null;
   private stopped = false;
@@ -348,6 +356,7 @@ class StreamConnectionWorker {
     }
 
     this.stopped = true;
+    this.outbound.close();
     if (this.currentSocket !== null) {
       safeClose(this.currentSocket);
     }
@@ -387,14 +396,14 @@ class StreamConnectionWorker {
       this.setReadyError(StreamClientError.sendQueueClosed());
     }
 
+    this.stopped = true;
+    this.outbound.close();
     this.inbound.close();
   }
 
   private async runConnectedSession(): Promise<SessionOutcome> {
-    const socket = await openSocket(this.endpoint, this.apiKey);
+    const { socket, frames } = await openSocket(this.endpoint, this.apiKey);
     this.currentSocket = socket;
-
-    const frames = new WebSocketFrameQueue(socket);
 
     try {
       const firstServerMessage = await recvServerMessageBeforeConfigure(socket, frames);
@@ -421,11 +430,10 @@ class StreamConnectionWorker {
       }
 
       while (!this.stopped) {
-        const nextOutbound = this.outbound[0];
+        const nextOutbound = this.outbound.shiftNow();
         if (nextOutbound !== undefined) {
           try {
             await sendClientMessage(socket, nextOutbound);
-            this.outbound.shift();
             continue;
           } catch {
             return "reconnect";
@@ -441,7 +449,38 @@ class StreamConnectionWorker {
           continue;
         }
 
-        await sleep(FRAME_IDLE_SLEEP_MS);
+        const outboundWait = this.outbound.shiftCancelable();
+        const frameWait = frames.waitNextCancelable();
+        const next = await Promise.race([
+          outboundWait.promise.then((message) => ({
+            source: "outbound" as const,
+            message,
+          })),
+          frameWait.promise.then((nextFrame) => ({
+            source: "frame" as const,
+            frame: nextFrame,
+          })),
+        ]);
+
+        if (next.source === "outbound") {
+          frameWait.cancel();
+          if (next.message === null) {
+            return "graceful_shutdown";
+          }
+
+          try {
+            await sendClientMessage(socket, next.message);
+            continue;
+          } catch {
+            return "reconnect";
+          }
+        }
+
+        outboundWait.cancel();
+        const outcome = await this.handleFrame(socket, next.frame);
+        if (outcome === "reconnect") {
+          return "reconnect";
+        }
       }
 
       return "graceful_shutdown";
@@ -499,59 +538,68 @@ class StreamConnectionWorker {
   }
 }
 
-async function openSocket(url: string, apiKey: string): Promise<WebSocket> {
-  return await new Promise<WebSocket>((resolve, reject) => {
-    let settled = false;
+async function openSocket(
+  url: string,
+  apiKey: string,
+): Promise<{ socket: WebSocket; frames: WebSocketFrameQueue }> {
+  return await new Promise<{ socket: WebSocket; frames: WebSocketFrameQueue }>(
+    (resolve, reject) => {
+      let settled = false;
 
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(url, {
-        headers: {
-          "x-api-key": apiKey,
-        },
-      });
-    } catch (error) {
-      reject(StreamClientError.invalidApiKeyHeader(error));
-      return;
-    }
-
-    const onOpen = (): void => {
-      if (settled) {
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(url, {
+          headers: {
+            "x-api-key": apiKey,
+          },
+        });
+      } catch (error) {
+        reject(StreamClientError.invalidApiKeyHeader(error));
         return;
       }
-      settled = true;
-      cleanup();
-      resolve(socket);
-    };
 
-    const onError = (error: Error): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      reject(StreamClientError.websocket(error));
-    };
+      // Attach frame listeners before waiting for `open` so we never miss an
+      // immediate server hello frame on low-latency links.
+      const frames = new WebSocketFrameQueue(socket);
 
-    const onClose = (): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      reject(StreamClientError.protocol("socket closed before open"));
-    };
+      const onOpen = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve({ socket, frames });
+      };
 
-    const cleanup = (): void => {
-      socket.off("open", onOpen);
-      socket.off("error", onError);
-      socket.off("close", onClose);
-    };
+      const onError = (error: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(StreamClientError.websocket(error));
+      };
 
-    socket.on("open", onOpen);
-    socket.on("error", onError);
-    socket.on("close", onClose);
-  });
+      const onClose = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(StreamClientError.protocol("socket closed before open"));
+      };
+
+      const cleanup = (): void => {
+        socket.off("open", onOpen);
+        socket.off("error", onError);
+        socket.off("close", onClose);
+      };
+
+      socket.on("open", onOpen);
+      socket.on("error", onError);
+      socket.on("close", onClose);
+    },
+  );
 }
 
 async function recvServerMessageBeforeConfigure(
@@ -673,34 +721,41 @@ type WsFrame =
 
 class WebSocketFrameQueue {
   private readonly frames: WsFrame[] = [];
+  private readonly waiters: Array<{
+    canceled: boolean;
+    hasValue: boolean;
+    value: WsFrame | null;
+    settled: boolean;
+    resolve: (frame: WsFrame) => void;
+  }> = [];
 
   constructor(socket: WebSocket) {
     socket.on("message", (data, isBinary) => {
       if (isBinary) {
-        this.frames.push({ kind: "binary" });
+        this.push({ kind: "binary" });
         return;
       }
 
       const text = rawDataToString(data);
-      this.frames.push({ kind: "text", text });
+      this.push({ kind: "text", text });
     });
 
     socket.on("ping", (payload) => {
-      this.frames.push({
+      this.push({
         kind: "ping",
         payload: rawDataToBuffer(payload),
       });
     });
 
     socket.on("pong", (payload) => {
-      this.frames.push({
+      this.push({
         kind: "pong",
         payload: rawDataToBuffer(payload),
       });
     });
 
     socket.on("close", (code, reason) => {
-      this.frames.push({
+      this.push({
         kind: "close",
         code,
         reason: reason.toString("utf8"),
@@ -708,7 +763,7 @@ class WebSocketFrameQueue {
     });
 
     socket.on("error", (error) => {
-      this.frames.push({ kind: "error", error });
+      this.push({ kind: "error", error });
     });
   }
 
@@ -716,20 +771,88 @@ class WebSocketFrameQueue {
     return this.frames.shift();
   }
 
-  async waitNext(): Promise<WsFrame> {
-    while (true) {
-      const next = this.shiftNow();
-      if (next !== undefined) {
-        return next;
-      }
-      await sleep(FRAME_IDLE_SLEEP_MS);
+  waitNextCancelable(): {
+    promise: Promise<WsFrame>;
+    cancel: () => void;
+  } {
+    const next = this.shiftNow();
+    if (next !== undefined) {
+      return {
+        promise: Promise.resolve(next),
+        cancel: () => {},
+      };
     }
+
+    let waiter:
+      | {
+          canceled: boolean;
+          hasValue: boolean;
+          value: WsFrame | null;
+          settled: boolean;
+          resolve: (frame: WsFrame) => void;
+        }
+      | undefined;
+    const promise = new Promise<WsFrame>((resolve) => {
+      waiter = {
+        canceled: false,
+        hasValue: false,
+        value: null,
+        settled: false,
+        resolve,
+      };
+      this.waiters.push(waiter);
+    });
+
+    const cancel = (): void => {
+      if (waiter === undefined || waiter.canceled) {
+        return;
+      }
+      waiter.canceled = true;
+      if (!waiter.settled) {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) {
+          this.waiters.splice(index, 1);
+        }
+        return;
+      }
+      if (waiter.hasValue && waiter.value !== null) {
+        this.frames.unshift(waiter.value);
+        waiter.hasValue = false;
+        waiter.value = null;
+      }
+    };
+
+    return { promise, cancel };
+  }
+
+  async waitNext(): Promise<WsFrame> {
+    const { promise } = this.waitNextCancelable();
+    return await promise;
+  }
+
+  private push(frame: WsFrame): void {
+    const waiter = this.waiters.shift();
+    if (waiter !== undefined) {
+      waiter.settled = true;
+      waiter.hasValue = true;
+      waiter.value = frame;
+      waiter.resolve(frame);
+      return;
+    }
+
+    this.frames.push(frame);
   }
 }
 
 class AsyncQueue<T> {
   private readonly items: T[] = [];
-  private readonly waiters: Array<(value: T | null) => void> = [];
+  private readonly waiters: Array<{
+    canceled: boolean;
+    hasValue: boolean;
+    value: T | null;
+    settled: boolean;
+    resolve: (value: T | null) => void;
+  }> = [];
   private closed = false;
 
   push(item: T): void {
@@ -739,7 +862,10 @@ class AsyncQueue<T> {
 
     const waiter = this.waiters.shift();
     if (waiter !== undefined) {
-      waiter(item);
+      waiter.settled = true;
+      waiter.hasValue = true;
+      waiter.value = item;
+      waiter.resolve(item);
       return;
     }
 
@@ -754,23 +880,83 @@ class AsyncQueue<T> {
     this.closed = true;
     while (this.waiters.length > 0) {
       const waiter = this.waiters.shift();
-      waiter?.(null);
+      if (waiter !== undefined) {
+        waiter.settled = true;
+        waiter.hasValue = true;
+        waiter.value = null;
+        waiter.resolve(null);
+      }
     }
   }
 
-  async shift(): Promise<T | null> {
-    const next = this.items.shift();
+  shiftNow(): T | undefined {
+    return this.items.shift();
+  }
+
+  shiftCancelable(): {
+    promise: Promise<T | null>;
+    cancel: () => void;
+  } {
+    const next = this.shiftNow();
     if (next !== undefined) {
-      return next;
+      return {
+        promise: Promise.resolve(next),
+        cancel: () => {},
+      };
     }
 
     if (this.closed) {
-      return null;
+      return {
+        promise: Promise.resolve(null),
+        cancel: () => {},
+      };
     }
 
-    return await new Promise<T | null>((resolve) => {
-      this.waiters.push(resolve);
+    let waiter:
+      | {
+          canceled: boolean;
+          hasValue: boolean;
+          value: T | null;
+          settled: boolean;
+          resolve: (value: T | null) => void;
+        }
+      | undefined;
+    const promise = new Promise<T | null>((resolve) => {
+      waiter = {
+        canceled: false,
+        hasValue: false,
+        value: null,
+        settled: false,
+        resolve,
+      };
+      this.waiters.push(waiter);
     });
+
+    const cancel = (): void => {
+      if (waiter === undefined || waiter.canceled) {
+        return;
+      }
+      waiter.canceled = true;
+      if (!waiter.settled) {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) {
+          this.waiters.splice(index, 1);
+        }
+        return;
+      }
+      if (waiter.hasValue && waiter.value !== null && !this.closed) {
+        this.items.unshift(waiter.value);
+        waiter.hasValue = false;
+        waiter.value = null;
+      }
+    };
+
+    return { promise, cancel };
+  }
+
+  async shift(): Promise<T | null> {
+    const { promise } = this.shiftCancelable();
+    return await promise;
   }
 }
 

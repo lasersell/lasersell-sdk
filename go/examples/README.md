@@ -32,3 +32,10 @@ Each file contains placeholder values and setup notes near the top.
 exitClient := lasersell.NewExitAPIClientWithAPIKey(apiKey).WithLocalMode(true)
 streamClient := stream.NewStreamClient(apiKey).WithLocalMode(true)
 ```
+
+Or point at custom environments directly:
+
+```go
+exitClient := lasersell.NewExitAPIClientWithAPIKey(apiKey).WithBaseURL("https://api-dev.example")
+streamClient := stream.NewStreamClient(apiKey).WithEndpoint("wss://stream-dev.example/v1/ws")
+```
