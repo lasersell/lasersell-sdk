@@ -67,20 +67,30 @@ impl StreamClient {
     ) -> Result<StreamConnection, StreamClientError> {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
+        let (status_tx, status_rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = oneshot::channel();
 
         let url = self.endpoint().to_string();
         let api_key = self.api_key.clone();
 
         tokio::spawn(async move {
-            stream_connection_worker(url, api_key, configure, outbound_rx, inbound_tx, ready_tx)
-                .await;
+            stream_connection_worker(
+                url,
+                api_key,
+                configure,
+                outbound_rx,
+                inbound_tx,
+                status_tx,
+                ready_tx,
+            )
+            .await;
         });
 
         match ready_rx.await {
             Ok(Ok(())) => Ok(StreamConnection {
                 sender: StreamSender { tx: outbound_tx },
                 receiver: inbound_rx,
+                status: status_rx,
             }),
             Ok(Err(err)) => Err(err),
             Err(_) => Err(StreamClientError::Protocol(
@@ -120,6 +130,13 @@ impl StreamConfigure {
     }
 }
 
+/// Connection lifecycle updates produced by the stream worker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StreamConnectionStatus {
+    Connected,
+    Disconnected,
+}
+
 /// Active stream connection channels.
 ///
 /// Internally, messages are produced by the background websocket worker.
@@ -127,6 +144,7 @@ impl StreamConfigure {
 pub struct StreamConnection {
     sender: StreamSender,
     receiver: mpsc::UnboundedReceiver<ServerMessage>,
+    status: mpsc::UnboundedReceiver<StreamConnectionStatus>,
 }
 
 impl StreamConnection {
@@ -138,6 +156,18 @@ impl StreamConnection {
     /// Splits into sender and raw inbound message receiver.
     pub fn split(self) -> (StreamSender, mpsc::UnboundedReceiver<ServerMessage>) {
         (self.sender, self.receiver)
+    }
+
+    /// Splits into sender, raw inbound message receiver, and connection status
+    /// receiver.
+    pub fn split_with_status(
+        self,
+    ) -> (
+        StreamSender,
+        mpsc::UnboundedReceiver<ServerMessage>,
+        mpsc::UnboundedReceiver<StreamConnectionStatus>,
+    ) {
+        (self.sender, self.receiver, self.status)
     }
 
     /// Receives the next server message from the stream worker.
@@ -158,6 +188,7 @@ impl StreamConnection {
         let (high_tx, high_rx) = mpsc::unbounded_channel();
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
 
+        let _status = self.status;
         let mut receiver = self.receiver;
         tokio::spawn(async move {
             while let Some(message) = receiver.recv().await {
@@ -396,6 +427,7 @@ async fn stream_connection_worker(
     configure: StreamConfigure,
     mut outbound_rx: mpsc::UnboundedReceiver<ClientMessage>,
     inbound_tx: mpsc::UnboundedSender<ServerMessage>,
+    status_tx: mpsc::UnboundedSender<StreamConnectionStatus>,
     ready_tx: oneshot::Sender<Result<(), StreamClientError>>,
 ) {
     let mut ready_tx = Some(ready_tx);
@@ -409,18 +441,21 @@ async fn stream_connection_worker(
             &configure,
             &mut outbound_rx,
             &inbound_tx,
+            &status_tx,
             &mut pending,
             &mut ready_tx,
         )
         .await
         {
             Ok(SessionOutcome::GracefulShutdown) => {
+                let _ = status_tx.send(StreamConnectionStatus::Disconnected);
                 if let Some(tx) = ready_tx.take() {
                     let _ = tx.send(Err(StreamClientError::SendQueueClosed));
                 }
                 break;
             }
             Ok(SessionOutcome::Reconnect) => {
+                let _ = status_tx.send(StreamConnectionStatus::Disconnected);
                 backoff = MIN_RECONNECT_BACKOFF;
             }
             Err(err) => {
@@ -449,6 +484,7 @@ async fn run_connected_session(
     configure: &StreamConfigure,
     outbound_rx: &mut mpsc::UnboundedReceiver<ClientMessage>,
     inbound_tx: &mpsc::UnboundedSender<ServerMessage>,
+    status_tx: &mpsc::UnboundedSender<StreamConnectionStatus>,
     pending: &mut VecDeque<ClientMessage>,
     ready_tx: &mut Option<oneshot::Sender<Result<(), StreamClientError>>>,
 ) -> Result<SessionOutcome, StreamClientError> {
@@ -475,6 +511,7 @@ async fn run_connected_session(
 
     let configured_message = recv_server_message_after_configure(&mut socket).await?;
     let _ = inbound_tx.send(configured_message);
+    let _ = status_tx.send(StreamConnectionStatus::Connected);
 
     if let Some(tx) = ready_tx.take() {
         let _ = tx.send(Ok(()));
