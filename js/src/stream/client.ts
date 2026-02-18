@@ -19,6 +19,17 @@ export interface StreamConfigure {
   strategy: StrategyConfigMsg;
 }
 
+export interface StreamLanesOptions {
+  /**
+   * Maximum number of low-priority messages (currently `pnl_update`) to buffer.
+   *
+   * When full, the oldest low-priority message is dropped to keep the stream hot path responsive.
+   *
+   * Defaults to 1024.
+   */
+  lowPriorityCapacity?: number;
+}
+
 export function singleWalletStreamConfigure(
   walletPubkey: string,
   strategy: StrategyConfigMsg,
@@ -124,6 +135,23 @@ export class StreamClient {
     return new StreamConnection(worker);
   }
 
+  async connectLanes(
+    configure: StreamConfigure,
+    options: StreamLanesOptions = {},
+  ): Promise<StreamConnectionLanes> {
+    const worker = new StreamConnectionWorker(
+      this.endpoint(),
+      this.apiKey,
+      configure,
+      {
+        inboundMode: "lanes",
+        lowPriorityCapacity: options.lowPriorityCapacity,
+      },
+    );
+    await worker.waitReady();
+    return new StreamConnectionLanes(worker);
+  }
+
   private endpoint(): string {
     if (this.endpointOverride !== undefined) {
       return this.endpointOverride;
@@ -156,6 +184,78 @@ export class StreamConnection {
 
   close(): void {
     this.worker.close();
+  }
+}
+
+export class StreamConnectionLanes {
+  private readonly worker: StreamConnectionWorker;
+
+  constructor(worker: StreamConnectionWorker) {
+    this.worker = worker;
+  }
+
+  sender(): StreamSender {
+    return new StreamSender(this.worker);
+  }
+
+  highReceiver(): StreamHighReceiver {
+    return new StreamHighReceiver(this.worker);
+  }
+
+  lowReceiver(): StreamLowReceiver {
+    return new StreamLowReceiver(this.worker);
+  }
+
+  split(): [StreamSender, StreamHighReceiver, StreamLowReceiver] {
+    return [this.sender(), this.highReceiver(), this.lowReceiver()];
+  }
+
+  close(): void {
+    this.worker.close();
+  }
+}
+
+export class StreamHighReceiver {
+  private readonly worker: StreamConnectionWorker;
+
+  constructor(worker: StreamConnectionWorker) {
+    this.worker = worker;
+  }
+
+  async recv(): Promise<ServerMessage | null> {
+    return await this.worker.recvHigh();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<ServerMessage, void, void> {
+    while (true) {
+      const message = await this.recv();
+      if (message === null) {
+        break;
+      }
+      yield message;
+    }
+  }
+}
+
+export class StreamLowReceiver {
+  private readonly worker: StreamConnectionWorker;
+
+  constructor(worker: StreamConnectionWorker) {
+    this.worker = worker;
+  }
+
+  async recv(): Promise<ServerMessage | null> {
+    return await this.worker.recvLow();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<ServerMessage, void, void> {
+    while (true) {
+      const message = await this.recv();
+      if (message === null) {
+        break;
+      }
+      yield message;
+    }
   }
 }
 
@@ -305,11 +405,23 @@ function normalizePositionSelector(selector: PositionSelectorInput): PositionSel
 
 type SessionOutcome = "graceful_shutdown" | "reconnect";
 
+type InboundMode = "combined" | "lanes";
+
+interface StreamConnectionWorkerOptions {
+  inboundMode?: InboundMode;
+  lowPriorityCapacity?: number;
+}
+
 class StreamConnectionWorker {
   private readonly endpoint: string;
   private readonly apiKey: string;
   private readonly configure: StreamConfigure;
-  private readonly inbound = new AsyncQueue<ServerMessage>();
+
+  private readonly inboundMode: InboundMode;
+  private readonly inboundCombined?: AsyncQueue<ServerMessage>;
+  private readonly inboundHigh?: AsyncQueue<ServerMessage>;
+  private readonly inboundLow?: AsyncQueue<ServerMessage>;
+
   private readonly outbound = new AsyncQueue<ClientMessage>();
 
   private currentSocket: WebSocket | null = null;
@@ -320,10 +432,26 @@ class StreamConnectionWorker {
   private resolveReady!: () => void;
   private rejectReady!: (error: StreamClientError) => void;
 
-  constructor(endpoint: string, apiKey: string, configure: StreamConfigure) {
+  constructor(
+    endpoint: string,
+    apiKey: string,
+    configure: StreamConfigure,
+    options: StreamConnectionWorkerOptions = {},
+  ) {
     this.endpoint = endpoint;
     this.apiKey = apiKey;
     this.configure = configure;
+
+    this.inboundMode = options.inboundMode ?? "combined";
+    if (this.inboundMode === "combined") {
+      this.inboundCombined = new AsyncQueue<ServerMessage>();
+    } else {
+      this.inboundHigh = new AsyncQueue<ServerMessage>();
+      this.inboundLow = new AsyncQueue<ServerMessage>({
+        maxLen: options.lowPriorityCapacity ?? 1024,
+        dropOldest: true,
+      });
+    }
 
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
@@ -347,7 +475,30 @@ class StreamConnectionWorker {
   }
 
   async recv(): Promise<ServerMessage | null> {
-    return await this.inbound.shift();
+    if (this.inboundCombined === undefined) {
+      throw StreamClientError.protocol(
+        "recv() is not available for lane-mode connections; use StreamConnectionLanes receivers",
+      );
+    }
+    return await this.inboundCombined.shift();
+  }
+
+  async recvHigh(): Promise<ServerMessage | null> {
+    if (this.inboundHigh === undefined) {
+      throw StreamClientError.protocol(
+        "recvHigh() is only available for lane-mode connections",
+      );
+    }
+    return await this.inboundHigh.shift();
+  }
+
+  async recvLow(): Promise<ServerMessage | null> {
+    if (this.inboundLow === undefined) {
+      throw StreamClientError.protocol(
+        "recvLow() is only available for lane-mode connections",
+      );
+    }
+    return await this.inboundLow.shift();
   }
 
   close(): void {
@@ -398,7 +549,7 @@ class StreamConnectionWorker {
 
     this.stopped = true;
     this.outbound.close();
-    this.inbound.close();
+    this.closeInbound();
   }
 
   private async runConnectedSession(): Promise<SessionOutcome> {
@@ -412,7 +563,7 @@ class StreamConnectionWorker {
           "expected first server message to be hello_ok",
         );
       }
-      this.inbound.push(firstServerMessage);
+      this.pushInbound(firstServerMessage);
 
       const configureMessage: ClientMessage = {
         type: "configure",
@@ -422,7 +573,7 @@ class StreamConnectionWorker {
       await sendClientMessage(socket, configureMessage);
 
       const configuredMessage = await recvServerMessageAfterConfigure(socket, frames);
-      this.inbound.push(configuredMessage);
+      this.pushInbound(configuredMessage);
 
       if (!this.readySettled) {
         this.readySettled = true;
@@ -502,7 +653,7 @@ class StreamConnectionWorker {
         } catch {
           return "reconnect";
         }
-        this.inbound.push(parsed);
+        this.pushInbound(parsed);
         return "continue";
       }
       case "ping": {
@@ -535,6 +686,25 @@ class StreamConnectionWorker {
 
     this.readySettled = true;
     this.rejectReady(error);
+  }
+
+  private pushInbound(message: ServerMessage): void {
+    if (this.inboundMode === "combined") {
+      this.inboundCombined!.push(message);
+      return;
+    }
+
+    if (message.type === "pnl_update") {
+      this.inboundLow!.push(message);
+    } else {
+      this.inboundHigh!.push(message);
+    }
+  }
+
+  private closeInbound(): void {
+    this.inboundCombined?.close();
+    this.inboundHigh?.close();
+    this.inboundLow?.close();
   }
 }
 
@@ -719,8 +889,77 @@ type WsFrame =
   | { kind: "close"; code: number; reason: string }
   | { kind: "error"; error: Error };
 
+class Deque<T> {
+  private buffer: Array<T | undefined>;
+  private head = 0;
+  private len = 0;
+  private mask: number;
+
+  constructor(initialCapacity = 16) {
+    const cap = nextPowerOfTwo(Math.max(2, initialCapacity));
+    this.buffer = new Array<T | undefined>(cap);
+    this.mask = cap - 1;
+  }
+
+  get length(): number {
+    return this.len;
+  }
+
+  push(value: T): void {
+    if (this.len === this.buffer.length) {
+      this.grow();
+    }
+    const index = (this.head + this.len) & this.mask;
+    this.buffer[index] = value;
+    this.len += 1;
+  }
+
+  unshift(value: T): void {
+    if (this.len === this.buffer.length) {
+      this.grow();
+    }
+    this.head = (this.head - 1) & this.mask;
+    this.buffer[this.head] = value;
+    this.len += 1;
+  }
+
+  shift(): T | undefined {
+    if (this.len === 0) {
+      return undefined;
+    }
+    const value = this.buffer[this.head];
+    this.buffer[this.head] = undefined;
+    this.head = (this.head + 1) & this.mask;
+    this.len -= 1;
+    return value;
+  }
+
+  private grow(): void {
+    const old = this.buffer;
+    const newCap = old.length * 2;
+    const next = new Array<T | undefined>(newCap);
+    for (let i = 0; i < this.len; i += 1) {
+      next[i] = old[(this.head + i) & this.mask];
+    }
+    this.buffer = next;
+    this.head = 0;
+    this.mask = newCap - 1;
+  }
+}
+
+function nextPowerOfTwo(value: number): number {
+  let v = Math.max(2, Math.floor(value));
+  v -= 1;
+  v |= v >> 1;
+  v |= v >> 2;
+  v |= v >> 4;
+  v |= v >> 8;
+  v |= v >> 16;
+  return v + 1;
+}
+
 class WebSocketFrameQueue {
-  private readonly frames: WsFrame[] = [];
+  private readonly frames = new Deque<WsFrame>();
   private readonly waiters: Array<{
     canceled: boolean;
     hasValue: boolean;
@@ -845,7 +1084,7 @@ class WebSocketFrameQueue {
 }
 
 class AsyncQueue<T> {
-  private readonly items: T[] = [];
+  private readonly items = new Deque<T>();
   private readonly waiters: Array<{
     canceled: boolean;
     hasValue: boolean;
@@ -854,6 +1093,14 @@ class AsyncQueue<T> {
     resolve: (value: T | null) => void;
   }> = [];
   private closed = false;
+
+  private readonly maxLen?: number;
+  private readonly dropOldest: boolean;
+
+  constructor(options?: { maxLen?: number; dropOldest?: boolean }) {
+    this.maxLen = options?.maxLen;
+    this.dropOldest = options?.dropOldest ?? false;
+  }
 
   push(item: T): void {
     if (this.closed) {
@@ -867,6 +1114,14 @@ class AsyncQueue<T> {
       waiter.value = item;
       waiter.resolve(item);
       return;
+    }
+
+    if (this.maxLen !== undefined && this.items.length >= this.maxLen) {
+      if (this.dropOldest) {
+        this.items.shift();
+      } else {
+        return;
+      }
     }
 
     this.items.push(item);

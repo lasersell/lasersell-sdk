@@ -3,9 +3,13 @@ import {
   type Signer,
 } from "@solana/web3.js";
 
+import { ed25519 } from "@noble/curves/ed25519";
+
 const ERROR_BODY_SNIPPET_LEN = 220;
 
-export const HELIUS_SENDER_FAST_URL = "https://sender.helius-rpc.com/fast";
+export const HELIUS_SENDER_BASE_URL = "https://sender.helius-rpc.com";
+export const HELIUS_SENDER_FAST_URL = `${HELIUS_SENDER_BASE_URL}/fast`;
+export const HELIUS_SENDER_PING_URL = `${HELIUS_SENDER_BASE_URL}/ping`;
 
 export type TxSubmitErrorKind =
   | "decode_unsigned_tx"
@@ -154,6 +158,60 @@ export function signUnsignedTx(
   }
 }
 
+/**
+ * Fast-path signer for LaserSell-provided unsigned transactions.
+ *
+ * Unlike `signUnsignedTx` (which deserializes into a `VersionedTransaction`), this method:
+ * 1) base64-decodes the transaction
+ * 2) signs the raw message bytes
+ * 3) patches the signature bytes in-place
+ * 4) re-encodes to base64
+ *
+ * This avoids `VersionedTransaction.deserialize()` and `tx.serialize()` on the hot path.
+ */
+export function signUnsignedTxB64Fast(
+  unsignedTxB64: string,
+  signer: Signer,
+): string {
+  let raw: Uint8Array;
+  try {
+    raw = decodeBase64Strict(unsignedTxB64);
+  } catch (error) {
+    throw TxSubmitError.decodeUnsignedTx(error);
+  }
+
+  try {
+    patchSignTransactionInPlace(raw, signer);
+  } catch (error) {
+    throw TxSubmitError.signTx(error);
+  }
+
+  try {
+    return Buffer.from(raw).toString("base64");
+  } catch (error) {
+    throw TxSubmitError.serializeTx(error);
+  }
+}
+
+export async function signAndSendUnsignedTxViaHeliusSenderB64(
+  unsignedTxB64: string,
+  signer: Signer,
+  options: SendTransactionOptions = {},
+): Promise<string> {
+  const signedTxB64 = signUnsignedTxB64Fast(unsignedTxB64, signer);
+  return await sendViaHeliusSenderB64(signedTxB64, options);
+}
+
+export async function signAndSendUnsignedTxViaRpcB64(
+  rpcUrl: string,
+  unsignedTxB64: string,
+  signer: Signer,
+  options: SendTransactionOptions = {},
+): Promise<string> {
+  const signedTxB64 = signUnsignedTxB64Fast(unsignedTxB64, signer);
+  return await sendViaRpcB64(rpcUrl, signedTxB64, options);
+}
+
 export function encodeSignedTx(tx: VersionedTransaction): string {
   try {
     return Buffer.from(tx.serialize()).toString("base64");
@@ -283,6 +341,195 @@ async function sendTransactionB64(
     target,
     typeof result === "undefined" ? JSON.stringify(obj) : JSON.stringify(result),
   );
+}
+
+export async function pingHeliusSender(
+  options: {
+    baseUrl?: string;
+    fetch_impl?: FetchLike;
+  } = {},
+): Promise<boolean> {
+  const fetchImpl = options.fetch_impl ?? globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    return false;
+  }
+
+  const pingUrl =
+    options.baseUrl === undefined
+      ? HELIUS_SENDER_PING_URL
+      : senderPingUrl(options.baseUrl);
+  try {
+    const response = await fetchImpl(pingUrl, { method: "GET" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export function startHeliusSenderWarmLoop(
+  options: {
+    baseUrl?: string;
+    intervalMs?: number;
+    fetch_impl?: FetchLike;
+  } = {},
+): { stop: () => void } {
+  const fetchImpl = options.fetch_impl ?? globalThis.fetch;
+  const intervalMs = options.intervalMs ?? 30_000;
+  const pingUrl =
+    options.baseUrl === undefined
+      ? HELIUS_SENDER_PING_URL
+      : senderPingUrl(options.baseUrl);
+
+  if (typeof fetchImpl !== "function") {
+    return { stop: () => {} };
+  }
+
+  const handle: ReturnType<typeof setInterval> = setInterval(() => {
+    void fetchImpl(pingUrl, { method: "GET" }).catch(() => {
+      // Best-effort only.
+    });
+  }, intervalMs);
+
+  return {
+    stop: () => clearInterval(handle),
+  };
+}
+
+function senderPingUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  const withoutFast = trimmed.endsWith("/fast")
+    ? trimmed.slice(0, trimmed.length - "/fast".length)
+    : trimmed;
+  return `${withoutFast}/ping`;
+}
+
+function patchSignTransactionInPlace(rawTx: Uint8Array, signer: Signer): void {
+  const { value: signatureCount, bytesRead: sigCountLen } = decodeShortVecLen(
+    rawTx,
+    0,
+  );
+
+  const signaturesLen = signatureCount * 64;
+  const messageStart = sigCountLen + signaturesLen;
+  if (messageStart > rawTx.length) {
+    throw new Error("transaction is truncated (signatures)");
+  }
+
+  const message = rawTx.subarray(messageStart);
+  const signerPubkey = signer.publicKey.toBytes();
+  const { index: maybeIndex, numRequiredSignatures } =
+    findSignerIndexInMessage(message, signerPubkey);
+
+  let signatureIndex = maybeIndex;
+  if (signatureIndex === null) {
+    if (signatureCount === 1 && numRequiredSignatures === 1) {
+      signatureIndex = 0;
+    } else {
+      throw new Error(
+        "signer pubkey not found among required signer accounts in tx message",
+      );
+    }
+  }
+
+  if (signatureIndex >= signatureCount) {
+    throw new Error(
+      `signer signature index (${signatureIndex}) out of range for signature vector length (${signatureCount})`,
+    );
+  }
+
+  const signature = ed25519.sign(message, signer.secretKey.slice(0, 32));
+  const signatureOffset = sigCountLen + signatureIndex * 64;
+  rawTx.set(signature, signatureOffset);
+}
+
+function findSignerIndexInMessage(
+  message: Uint8Array,
+  signerPubkey: Uint8Array,
+): { index: number | null; numRequiredSignatures: number } {
+  if (signerPubkey.length !== 32) {
+    throw new Error("signer pubkey must be 32 bytes");
+  }
+
+  const first = getByte(message, 0, "message prefix");
+  let offset = 0;
+  if ((first & 0x80) !== 0) {
+    const version = first & 0x7f;
+    if (version !== 0) {
+      throw new Error(`unsupported Solana message version: ${version}`);
+    }
+    offset = 1;
+  }
+
+  const numRequiredSignatures = getByte(
+    message,
+    offset,
+    "header.numRequiredSignatures",
+  );
+
+  // Skip message header: numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts
+  offset += 3;
+
+  const { value: accountKeyCount, bytesRead: keyCountLen } = decodeShortVecLen(
+    message,
+    offset,
+  );
+  offset += keyCountLen;
+
+  const keysBytes = accountKeyCount * 32;
+  if (offset + keysBytes > message.length) {
+    throw new Error("message is truncated (account keys)");
+  }
+
+  const signerCount = Math.min(numRequiredSignatures, accountKeyCount);
+  for (let i = 0; i < signerCount; i += 1) {
+    const keyOffset = offset + i * 32;
+    if (bytesEqual32(message, keyOffset, signerPubkey)) {
+      return { index: i, numRequiredSignatures };
+    }
+  }
+
+  return { index: null, numRequiredSignatures };
+}
+
+function decodeShortVecLen(
+  bytes: Uint8Array,
+  offset: number,
+): { value: number; bytesRead: number } {
+  let value = 0;
+  let shift = 0;
+  let bytesRead = 0;
+
+  while (true) {
+    const byte = getByte(bytes, offset + bytesRead, "shortvec byte");
+    value |= (byte & 0x7f) << shift;
+    bytesRead += 1;
+    if ((byte & 0x80) === 0) {
+      break;
+    }
+    shift += 7;
+    if (shift > 28) {
+      throw new Error("shortvec length overflow");
+    }
+  }
+
+  return { value, bytesRead };
+}
+
+function bytesEqual32(bytes: Uint8Array, offset: number, other: Uint8Array): boolean {
+  for (let i = 0; i < 32; i += 1) {
+    if (getByte(bytes, offset + i, "pubkey byte") !== getByte(other, i)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getByte(bytes: Uint8Array, index: number, label = "byte"): number {
+  const value = bytes[index];
+  if (value === undefined) {
+    throw new Error(`${label} out of range`);
+  }
+  return value;
 }
 
 function decodeBase64Strict(value: string): Uint8Array {

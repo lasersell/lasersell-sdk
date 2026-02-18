@@ -144,6 +144,80 @@ impl StreamConnection {
     pub async fn recv(&mut self) -> Option<ServerMessage> {
         self.receiver.recv().await
     }
+
+    /// Splits the inbound stream into high- and low-priority lanes.
+    ///
+    /// This does **not** create a second websocket connection; it spawns a small
+    /// demux task that reads from the single underlying socket and routes:
+    ///
+    /// - **High**: all messages except `PnlUpdate`
+    /// - **Low**: `PnlUpdate` (best-effort; dropped when the low lane is full)
+    ///
+    /// `low_capacity` controls how many low-priority messages to buffer.
+    pub fn into_lanes(self, low_capacity: usize) -> StreamConnectionLanes {
+        let (high_tx, high_rx) = mpsc::unbounded_channel();
+        let (low_tx, low_rx) = mpsc::channel(low_capacity);
+
+        let mut receiver = self.receiver;
+        tokio::spawn(async move {
+            while let Some(message) = receiver.recv().await {
+                match message {
+                    ServerMessage::PnlUpdate { .. } => {
+                        // Best-effort: drop when low lane is backpressured.
+                        let _ = low_tx.try_send(message);
+                    }
+                    _ => {
+                        let _ = high_tx.send(message);
+                    }
+                }
+            }
+        });
+
+        StreamConnectionLanes {
+            sender: self.sender,
+            high: high_rx,
+            low: low_rx,
+        }
+    }
+}
+
+/// Stream connection with split inbound priority lanes.
+///
+/// Intended for hot paths where you cannot afford to let frequent low-value
+/// messages (eg, PnL updates) delay exit signals / tx delivery.
+#[derive(Debug)]
+pub struct StreamConnectionLanes {
+    sender: StreamSender,
+    high: mpsc::UnboundedReceiver<ServerMessage>,
+    low: mpsc::Receiver<ServerMessage>,
+}
+
+impl StreamConnectionLanes {
+    /// Returns a cloneable sender for client commands.
+    pub fn sender(&self) -> StreamSender {
+        self.sender.clone()
+    }
+
+    /// Splits into sender, high-priority receiver, and low-priority receiver.
+    pub fn split(
+        self,
+    ) -> (
+        StreamSender,
+        mpsc::UnboundedReceiver<ServerMessage>,
+        mpsc::Receiver<ServerMessage>,
+    ) {
+        (self.sender, self.high, self.low)
+    }
+
+    /// Receives the next high-priority server message.
+    pub async fn recv_high(&mut self) -> Option<ServerMessage> {
+        self.high.recv().await
+    }
+
+    /// Receives the next low-priority server message.
+    pub async fn recv_low(&mut self) -> Option<ServerMessage> {
+        self.low.recv().await
+    }
 }
 
 /// Selects a position either by token account or numeric position id.

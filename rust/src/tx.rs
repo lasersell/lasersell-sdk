@@ -9,12 +9,23 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use solana_sdk::signature::Keypair;
+use solana_sdk::signer::Signer;
 use solana_sdk::transaction::VersionedTransaction;
 use thiserror::Error;
 
+macro_rules! helius_sender_base_url {
+    () => {
+        "https://sender.helius-rpc.com"
+    };
+}
+
 const ERROR_BODY_SNIPPET_LEN: usize = 220;
+/// Base URL for Helius Sender.
+pub const HELIUS_SENDER_BASE_URL: &str = helius_sender_base_url!();
 /// Helius Sender endpoint used by [`send_via_helius_sender`] helpers.
-pub const HELIUS_SENDER_FAST_URL: &str = "https://sender.helius-rpc.com/fast";
+pub const HELIUS_SENDER_FAST_URL: &str = concat!(helius_sender_base_url!(), "/fast");
+/// Ping endpoint used for connection warming.
+pub const HELIUS_SENDER_PING_URL: &str = concat!(helius_sender_base_url!(), "/ping");
 
 /// Error returned when signing or submitting a transaction.
 #[derive(Debug, Error)]
@@ -96,6 +107,39 @@ pub fn sign_unsigned_tx(
     let unsigned: VersionedTransaction =
         bincode::deserialize(&raw).map_err(TxSubmitError::DeserializeUnsignedTx)?;
     VersionedTransaction::try_new(unsigned.message, &[keypair]).map_err(TxSubmitError::SignTx)
+}
+
+/// Fast-path signer for an unsigned base64-encoded Solana transaction.
+///
+/// This avoids full bincode de/serialization by:
+/// - decoding base64 into the raw `VersionedTransaction` wire format,
+/// - signing the message bytes,
+/// - patching the signature bytes in-place,
+/// - re-encoding to base64.
+///
+/// Intended for hot paths where you only need a signed base64 string to submit.
+pub fn sign_unsigned_tx_b64_fast(
+    unsigned_tx_b64: &str,
+    keypair: &Keypair,
+) -> Result<String, TxSubmitError> {
+    let mut raw = BASE64_STANDARD
+        .decode(unsigned_tx_b64)
+        .map_err(TxSubmitError::DecodeUnsignedTx)?;
+
+    patch_sign_transaction_in_place(&mut raw, keypair)
+        .map_err(|error| TxSubmitError::DeserializeUnsignedTx(custom_bincode_error(error)))?;
+
+    Ok(BASE64_STANDARD.encode(raw))
+}
+
+/// Best-effort ping against Helius Sender.
+///
+/// Useful for connection warming when your application sits idle between sends.
+pub async fn ping_helius_sender(client: &Client) -> bool {
+    match client.get(HELIUS_SENDER_PING_URL).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
 }
 
 /// Serializes a signed transaction to standard base64.
@@ -253,4 +297,123 @@ fn read_error_kind(error: &reqwest::Error) -> &'static str {
 
 fn summarize_body(body: &str) -> String {
     body.chars().take(ERROR_BODY_SNIPPET_LEN).collect()
+}
+
+fn custom_bincode_error(message: String) -> bincode::Error {
+    Box::new(bincode::ErrorKind::Custom(message))
+}
+
+fn patch_sign_transaction_in_place(raw: &mut [u8], keypair: &Keypair) -> Result<(), String> {
+    let (signature_count, sig_count_len) = decode_shortvec_len(raw, 0)?;
+    let message_start = sig_count_len
+        .checked_add(signature_count.saturating_mul(64))
+        .ok_or_else(|| "transaction signature section overflow".to_string())?;
+
+    if message_start > raw.len() {
+        return Err("transaction is truncated (signatures)".to_string());
+    }
+
+    let message = &raw[message_start..];
+    let signer_pubkey = keypair.pubkey().to_bytes();
+    let (maybe_index, num_required_signatures) =
+        find_signer_index_in_message(message, &signer_pubkey)?;
+
+    let signature_index = match maybe_index {
+        Some(index) => index,
+        None => {
+            if signature_count == 1 && num_required_signatures == 1 {
+                0
+            } else {
+                return Err(
+                    "signer pubkey not found among required signer accounts in tx message"
+                        .to_string(),
+                );
+            }
+        }
+    };
+
+    if signature_index >= signature_count {
+        return Err(format!(
+            "signer signature index ({signature_index}) out of range for signature vector length ({signature_count})"
+        ));
+    }
+
+    let signature_offset = sig_count_len + signature_index * 64;
+    let end = signature_offset + 64;
+    if end > raw.len() {
+        return Err("transaction is truncated (signature bytes)".to_string());
+    }
+
+    let signature = keypair.sign_message(message);
+    raw[signature_offset..end].copy_from_slice(signature.as_ref());
+    Ok(())
+}
+
+fn find_signer_index_in_message(
+    message: &[u8],
+    signer_pubkey: &[u8; 32],
+) -> Result<(Option<usize>, usize), String> {
+    let first = *message
+        .get(0)
+        .ok_or_else(|| "message is empty".to_string())?;
+    let mut offset = 0usize;
+
+    if (first & 0x80) != 0 {
+        let version = first & 0x7f;
+        if version != 0 {
+            return Err(format!("unsupported Solana message version: {version}"));
+        }
+        offset = 1;
+    }
+
+    let num_required_signatures = *message
+        .get(offset)
+        .ok_or_else(|| "message is truncated (header)".to_string())? as usize;
+
+    // Skip header: numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts
+    offset = offset
+        .checked_add(3)
+        .ok_or_else(|| "message header overflow".to_string())?;
+
+    let (account_key_count, key_count_len) = decode_shortvec_len(message, offset)?;
+    offset += key_count_len;
+
+    let keys_len = account_key_count.saturating_mul(32);
+    if offset + keys_len > message.len() {
+        return Err("message is truncated (account keys)".to_string());
+    }
+
+    let signer_count = std::cmp::min(num_required_signatures, account_key_count);
+    for i in 0..signer_count {
+        let start = offset + i * 32;
+        let end = start + 32;
+        if message[start..end] == signer_pubkey[..] {
+            return Ok((Some(i), num_required_signatures));
+        }
+    }
+
+    Ok((None, num_required_signatures))
+}
+
+fn decode_shortvec_len(bytes: &[u8], offset: usize) -> Result<(usize, usize), String> {
+    let mut value: usize = 0;
+    let mut shift: usize = 0;
+    let mut idx = offset;
+
+    loop {
+        let byte = *bytes
+            .get(idx)
+            .ok_or_else(|| "shortvec byte out of range".to_string())?;
+        value |= ((byte & 0x7f) as usize) << shift;
+        idx += 1;
+        if (byte & 0x80) == 0 {
+            break;
+        }
+        shift += 7;
+        if shift > 28 {
+            return Err("shortvec length overflow".to_string());
+        }
+    }
+
+    Ok((value, idx - offset))
 }
