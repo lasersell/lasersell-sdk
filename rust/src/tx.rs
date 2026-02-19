@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::VersionedTransaction;
+use std::time::Duration;
 use thiserror::Error;
 
 macro_rules! helius_sender_base_url {
@@ -20,6 +21,8 @@ macro_rules! helius_sender_base_url {
 }
 
 const ERROR_BODY_SNIPPET_LEN: usize = 220;
+const CONFIRM_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const RPC_SEND_MAX_RETRIES: u64 = 3;
 /// Base URL for Helius Sender.
 pub const HELIUS_SENDER_BASE_URL: &str = helius_sender_base_url!();
 /// Helius Sender endpoint used by [`send_via_helius_sender`] helpers.
@@ -91,6 +94,14 @@ pub enum TxSubmitError {
         target: &'static str,
         response: String,
     },
+
+    /// Signature was accepted by sendTransaction but never reached confirmed/finalized.
+    #[error("tx confirm timed out for {signature}")]
+    ConfirmTimeout { signature: String },
+
+    /// Signature landed on-chain with an execution error.
+    #[error("tx failed on-chain for {signature}: {error}")]
+    TxFailed { signature: String, error: String },
 }
 
 /// Decodes and signs an unsigned base64-encoded transaction.
@@ -191,6 +202,101 @@ pub async fn send_via_rpc_b64(
     send_transaction_b64(client, rpc_url, "rpc", tx_b64, true).await
 }
 
+/// Confirms a submitted transaction signature via JSON-RPC polling.
+///
+/// `sendTransaction` returning a signature only means the node accepted the packet.
+/// We must still verify chain execution before treating the sell as complete.
+pub async fn confirm_signature_via_rpc(
+    client: &Client,
+    rpc_url: &str,
+    signature: &str,
+    timeout: std::time::Duration,
+) -> Result<(), TxSubmitError> {
+    let started = tokio::time::Instant::now();
+
+    loop {
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getSignatureStatuses",
+            "params": [[signature], { "searchTransactionHistory": true }],
+        });
+
+        let response = client
+            .post(rpc_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|source| TxSubmitError::RequestSend {
+                target: "rpc",
+                kind: send_error_kind(&source),
+                source,
+            })?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|source| TxSubmitError::ResponseRead {
+                target: "rpc",
+                kind: read_error_kind(&source),
+                source,
+            })?;
+
+        if !status.is_success() {
+            return Err(TxSubmitError::HttpStatus {
+                target: "rpc",
+                status,
+                body: summarize_body(&body),
+            });
+        }
+
+        let parsed: Value =
+            serde_json::from_str(&body).map_err(|source| TxSubmitError::DecodeResponse {
+                target: "rpc",
+                source,
+                body: summarize_body(&body),
+            })?;
+        if let Some(err) = parsed.get("error") {
+            return Err(TxSubmitError::RpcError {
+                target: "rpc",
+                error: err.to_string(),
+            });
+        }
+
+        let value = parsed
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .and_then(Value::as_array)
+            .and_then(|values| values.first())
+            .ok_or_else(|| TxSubmitError::MissingResult {
+                target: "rpc",
+                response: parsed.to_string(),
+            })?;
+
+        if !value.is_null() {
+            if let Some(err) = value.get("err").filter(|err| !err.is_null()) {
+                return Err(TxSubmitError::TxFailed {
+                    signature: signature.to_string(),
+                    error: err.to_string(),
+                });
+            }
+
+            if let Some(status) = value.get("confirmationStatus").and_then(Value::as_str) {
+                if status == "confirmed" || status == "finalized" {
+                    return Ok(());
+                }
+            }
+        }
+
+        if started.elapsed() >= timeout {
+            return Err(TxSubmitError::ConfirmTimeout {
+                signature: signature.to_string(),
+            });
+        }
+        tokio::time::sleep(CONFIRM_POLL_INTERVAL).await;
+    }
+}
+
 async fn send_transaction_b64(
     client: &Client,
     endpoint: &str,
@@ -211,6 +317,7 @@ async fn send_transaction_b64(
             "preflightCommitment".to_string(),
             Value::String("processed".to_string()),
         );
+        obj.insert("maxRetries".to_string(), Value::from(RPC_SEND_MAX_RETRIES));
     }
 
     let payload = json!({
@@ -368,7 +475,8 @@ fn find_signer_index_in_message(
 
     let num_required_signatures = *message
         .get(offset)
-        .ok_or_else(|| "message is truncated (header)".to_string())? as usize;
+        .ok_or_else(|| "message is truncated (header)".to_string())?
+        as usize;
 
     // Skip header: numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts
     offset = offset
