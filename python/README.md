@@ -95,8 +95,8 @@ async def main() -> None:
             strategy={
                 "target_profit_pct": 5.0,
                 "stop_loss_pct": 1.5,
-                "deadline_timeout_sec": 45,
             },
+            deadline_timeout_sec=45,
         ),
     )
 
@@ -113,6 +113,9 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+`deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
+Use `session.update_strategy(...)` when changing strategy so local deadline timers stay in sync (pass `deadline_timeout_sec=` to change local deadline timing).
 
 Notes:
 

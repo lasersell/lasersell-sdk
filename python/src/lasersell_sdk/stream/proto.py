@@ -63,7 +63,6 @@ class MarketContextMsg(TypedDict, total=False):
 class StrategyConfigMsg(TypedDict):
     target_profit_pct: float
     stop_loss_pct: float
-    deadline_timeout_sec: int
 
 
 class LimitsMsg(TypedDict):
@@ -499,10 +498,6 @@ def _parse_strategy_config(value: object) -> StrategyConfigMsg:
     return {
         "target_profit_pct": _as_float(obj.get("target_profit_pct"), "strategy.target_profit_pct"),
         "stop_loss_pct": _as_float(obj.get("stop_loss_pct"), "strategy.stop_loss_pct"),
-        "deadline_timeout_sec": _as_int(
-            obj.get("deadline_timeout_sec"),
-            "strategy.deadline_timeout_sec",
-        ),
     }
 
 

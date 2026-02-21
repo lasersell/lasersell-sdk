@@ -17,6 +17,7 @@ export const LOCAL_STREAM_ENDPOINT = "ws://localhost:8082/v1/ws";
 export interface StreamConfigure {
   wallet_pubkeys: string[];
   strategy: StrategyConfigMsg;
+  deadline_timeout_sec?: number;
 }
 
 export interface StreamLanesOptions {
@@ -33,10 +34,12 @@ export interface StreamLanesOptions {
 export function singleWalletStreamConfigure(
   walletPubkey: string,
   strategy: StrategyConfigMsg,
+  deadlineTimeoutSec?: number,
 ): StreamConfigure {
   return {
     wallet_pubkeys: [walletPubkey],
     strategy,
+    deadline_timeout_sec: deadlineTimeoutSec,
   };
 }
 

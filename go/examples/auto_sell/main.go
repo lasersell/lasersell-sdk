@@ -46,10 +46,10 @@ func main() {
 	session, err := stream.ConnectSession(ctx, client, stream.StreamConfigure{
 		WalletPubkeys: walletPubkeys,
 		Strategy: stream.StrategyConfigMsg{
-			TargetProfitPct:    5.0,
-			StopLossPct:        1.5,
-			DeadlineTimeoutSec: 45,
+			TargetProfitPct: 5.0,
+			StopLossPct:     1.5,
 		},
+		DeadlineTimeoutSec: 45,
 	})
 	if err != nil {
 		log.Fatalf("connect stream: %v", err)

@@ -65,8 +65,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         strategy: StrategyConfigMsg {
             target_profit_pct: 5.0,
             stop_loss_pct: 1.5,
-            deadline_timeout_sec: 45,
         },
+        deadline_timeout_sec: 45,
     };
 
     let keypair = read_keypair_file(keypair_path)?;

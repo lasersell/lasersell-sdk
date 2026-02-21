@@ -51,7 +51,6 @@ export interface MarketContextMsg {
 export interface StrategyConfigMsg {
   target_profit_pct: number;
   stop_loss_pct: number;
-  deadline_timeout_sec: number;
 }
 
 export interface LimitsMsg {
@@ -437,10 +436,6 @@ function parseStrategyConfig(value: unknown): StrategyConfigMsg {
       "strategy.target_profit_pct",
     ),
     stop_loss_pct: asNumber(obj.stop_loss_pct, "strategy.stop_loss_pct"),
-    deadline_timeout_sec: asNumber(
-      obj.deadline_timeout_sec,
-      "strategy.deadline_timeout_sec",
-    ),
   };
 }
 

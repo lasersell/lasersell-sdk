@@ -46,8 +46,8 @@ async function main(): Promise<void> {
     strategy: {
       target_profit_pct: 5,
       stop_loss_pct: 1.5,
-      deadline_timeout_sec: 45,
     },
+    deadline_timeout_sec: 45,
   });
 
   const submissions = new Set<Promise<void>>();

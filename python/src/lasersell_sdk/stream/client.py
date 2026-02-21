@@ -31,15 +31,21 @@ class StreamConfigure:
 
     wallet_pubkeys: list[str]
     strategy: StrategyConfigMsg
+    deadline_timeout_sec: int = 0
 
 
 def single_wallet_stream_configure(
     wallet_pubkey: str,
     strategy: StrategyConfigMsg,
+    deadline_timeout_sec: int = 0,
 ) -> StreamConfigure:
     """Convenience constructor for a single-wallet stream configuration."""
 
-    return StreamConfigure(wallet_pubkeys=[wallet_pubkey], strategy=strategy)
+    return StreamConfigure(
+        wallet_pubkeys=[wallet_pubkey],
+        strategy=strategy,
+        deadline_timeout_sec=deadline_timeout_sec,
+    )
 
 
 class StreamClientError(Exception):

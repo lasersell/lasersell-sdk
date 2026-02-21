@@ -74,8 +74,8 @@ const session = await StreamSession.connect(client, {
   strategy: {
     target_profit_pct: 5,
     stop_loss_pct: 1.5,
-    deadline_timeout_sec: 45,
   },
+  deadline_timeout_sec: 45,
 });
 
 const signer = Keypair.generate();
@@ -91,6 +91,9 @@ while (true) {
   }
 }
 ```
+
+`deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
+Use `session.updateStrategy(...)` when changing strategy so local deadline timers stay in sync (pass a second `deadlineTimeoutSec` argument to change local deadline timing).
 
 Use local stream endpoint instead of production:
 

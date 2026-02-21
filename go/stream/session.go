@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // PositionHandle is a snapshot of a tracked position.
@@ -38,8 +39,12 @@ type StreamEvent struct {
 type StreamSession struct {
 	connection *StreamConnection
 
-	mu        sync.RWMutex
-	positions map[uint64]PositionHandle
+	mu                 sync.RWMutex
+	positions          map[uint64]PositionHandle
+	strategy           StrategyConfigMsg
+	deadlineTimeoutSec uint64
+	openedAt           map[string]time.Time
+	timers             map[string]*time.Timer
 }
 
 // ConnectSession opens a new stream session and initializes position state.
@@ -52,14 +57,31 @@ func ConnectSession(
 	if err != nil {
 		return nil, err
 	}
-	return NewSessionFromConnection(connection), nil
+	return NewSessionFromConnectionWithStrategy(
+		connection,
+		configure.Strategy,
+		configure.DeadlineTimeoutSec,
+	), nil
 }
 
 // NewSessionFromConnection creates a session from an existing low-level connection.
 func NewSessionFromConnection(connection *StreamConnection) *StreamSession {
+	return NewSessionFromConnectionWithStrategy(connection, StrategyConfigMsg{}, 0)
+}
+
+// NewSessionFromConnectionWithStrategy creates a session with explicit initial strategy.
+func NewSessionFromConnectionWithStrategy(
+	connection *StreamConnection,
+	strategy StrategyConfigMsg,
+	deadlineTimeoutSec uint64,
+) *StreamSession {
 	return &StreamSession{
-		connection: connection,
-		positions:  make(map[uint64]PositionHandle),
+		connection:         connection,
+		positions:          make(map[uint64]PositionHandle),
+		strategy:           strategy,
+		deadlineTimeoutSec: deadlineTimeoutSec,
+		openedAt:           make(map[string]time.Time),
+		timers:             make(map[string]*time.Timer),
 	}
 }
 
@@ -94,14 +116,69 @@ func (s *StreamSession) PositionsForWalletMint(wallet string, mint string) []Pos
 	return out
 }
 
-// Close requests close for a tracked position.
-func (s *StreamSession) Close(handle PositionHandle) error {
+// Close closes the session when called without arguments.
+//
+// For backward compatibility, passing one position handle preserves the legacy
+// behavior and requests close for that position.
+func (s *StreamSession) Close(handles ...PositionHandle) error {
+	if len(handles) > 1 {
+		return protocolError("close accepts zero or one position handle")
+	}
+	if len(handles) == 1 {
+		return s.Sender().ClosePosition(TokenAccountSelector(handles[0].TokenAccount))
+	}
+
+	s.mu.Lock()
+	s.cancelAllTimersLocked()
+	s.openedAt = make(map[string]time.Time)
+	s.mu.Unlock()
+	s.connection.Close()
+	return nil
+}
+
+// ClosePosition requests close for a tracked position.
+func (s *StreamSession) ClosePosition(handle PositionHandle) error {
 	return s.Sender().ClosePosition(TokenAccountSelector(handle.TokenAccount))
 }
 
 // RequestExitSignal requests an exit signal for a tracked position.
 func (s *StreamSession) RequestExitSignal(handle PositionHandle, slippageBps *uint16) error {
 	return s.Sender().RequestExitSignal(TokenAccountSelector(handle.TokenAccount), slippageBps)
+}
+
+// UpdateStrategy updates local strategy state, sends the update to stream, and
+// reschedules all deadline timers.
+func (s *StreamSession) UpdateStrategy(
+	ctx context.Context,
+	strategy StrategyConfigMsg,
+	deadlineTimeoutSec ...uint64,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if err := s.Sender().UpdateStrategy(strategy); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.strategy = strategy
+	if len(deadlineTimeoutSec) > 0 {
+		s.deadlineTimeoutSec = deadlineTimeoutSec[0]
+	}
+	immediate := s.rescheduleAllDeadlinesLocked(time.Now())
+	s.mu.Unlock()
+
+	for _, tokenAccount := range immediate {
+		s.tryRequestExitSignal(tokenAccount)
+	}
+	return nil
 }
 
 // Recv receives the next server message and maps it into StreamEvent.
@@ -131,6 +208,8 @@ func (s *StreamSession) applyMessage(message ServerMessage) StreamEvent {
 			EntryQuoteUnits: msg.EntryQuoteUnits,
 		}
 		s.positions[msg.PositionID] = handle
+		s.openedAt[handle.TokenAccount] = time.Now()
+		s.armDeadlineLocked(handle.TokenAccount)
 
 		return StreamEvent{
 			Type:    StreamEventTypePositionOpened,
@@ -139,6 +218,11 @@ func (s *StreamSession) applyMessage(message ServerMessage) StreamEvent {
 		}
 	case PositionClosedServerMessage:
 		handle := s.removePosition(msg.PositionID, msg.TokenAccount)
+		if handle != nil {
+			s.cancelDeadlineForLocked(handle.TokenAccount)
+		} else if msg.TokenAccount != nil {
+			s.cancelDeadlineForLocked(*msg.TokenAccount)
+		}
 		return StreamEvent{
 			Type:    StreamEventTypePositionClosed,
 			Handle:  cloneHandlePtrFromPtr(handle),
@@ -215,4 +299,124 @@ func cloneHandlePtrFromPtr(handle *PositionHandle) *PositionHandle {
 	}
 	clone := *handle
 	return &clone
+}
+
+func (s *StreamSession) deadlineDurationLocked() (time.Duration, bool) {
+	if s.deadlineTimeoutSec == 0 {
+		return 0, false
+	}
+	return time.Duration(s.deadlineTimeoutSec) * time.Second, true
+}
+
+func (s *StreamSession) armDeadlineLocked(tokenAccount string) {
+	s.cancelTimerLocked(tokenAccount)
+
+	deadline, enabled := s.deadlineDurationLocked()
+	if !enabled {
+		return
+	}
+
+	openedAt, ok := s.openedAt[tokenAccount]
+	if !ok {
+		openedAt = time.Now()
+		s.openedAt[tokenAccount] = openedAt
+	}
+
+	remaining := time.Until(openedAt.Add(deadline))
+	if remaining <= 0 {
+		go s.tryRequestExitSignal(tokenAccount)
+		return
+	}
+
+	s.timers[tokenAccount] = time.AfterFunc(remaining, func() {
+		s.onDeadlineTimerFired(tokenAccount)
+	})
+}
+
+func (s *StreamSession) rescheduleAllDeadlinesLocked(now time.Time) []string {
+	s.cancelAllTimersLocked()
+
+	deadline, enabled := s.deadlineDurationLocked()
+	if !enabled {
+		return nil
+	}
+
+	openByToken := make(map[string]struct{})
+	for _, handle := range s.positions {
+		openByToken[handle.TokenAccount] = struct{}{}
+	}
+
+	immediate := make([]string, 0)
+	for tokenAccount := range openByToken {
+		openedAt, ok := s.openedAt[tokenAccount]
+		if !ok {
+			openedAt = now
+			s.openedAt[tokenAccount] = openedAt
+		}
+
+		remaining := openedAt.Add(deadline).Sub(now)
+		if remaining <= 0 {
+			immediate = append(immediate, tokenAccount)
+			continue
+		}
+
+		tokenAccount := tokenAccount
+		s.timers[tokenAccount] = time.AfterFunc(remaining, func() {
+			s.onDeadlineTimerFired(tokenAccount)
+		})
+	}
+
+	return immediate
+}
+
+func (s *StreamSession) onDeadlineTimerFired(tokenAccount string) {
+	s.mu.Lock()
+	delete(s.timers, tokenAccount)
+	open := s.hasOpenTokenAccountLocked(tokenAccount)
+	s.mu.Unlock()
+	if !open {
+		return
+	}
+
+	s.tryRequestExitSignal(tokenAccount)
+}
+
+func (s *StreamSession) tryRequestExitSignal(tokenAccount string) {
+	s.mu.RLock()
+	open := s.hasOpenTokenAccountLocked(tokenAccount)
+	s.mu.RUnlock()
+	if !open {
+		return
+	}
+	_ = s.Sender().RequestExitSignal(TokenAccountSelector(tokenAccount), nil)
+}
+
+func (s *StreamSession) hasOpenTokenAccountLocked(tokenAccount string) bool {
+	for _, handle := range s.positions {
+		if handle.TokenAccount == tokenAccount {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *StreamSession) cancelDeadlineForLocked(tokenAccount string) {
+	s.cancelTimerLocked(tokenAccount)
+	delete(s.openedAt, tokenAccount)
+}
+
+func (s *StreamSession) cancelTimerLocked(tokenAccount string) {
+	timer, ok := s.timers[tokenAccount]
+	if !ok {
+		return
+	}
+	timer.Stop()
+	delete(s.timers, tokenAccount)
+}
+
+func (s *StreamSession) cancelAllTimersLocked() {
+	for tokenAccount, timer := range s.timers {
+		timer.Stop()
+		delete(s.timers, tokenAccount)
+	}
 }

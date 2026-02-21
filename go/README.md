@@ -96,6 +96,8 @@ streamClient := stream.NewStreamClient(apiKey).WithEndpoint("wss://stream-dev.ex
 - Use `context.Context` on all network operations to control cancellation/timeouts.
 - Exit API parser supports current and legacy response envelopes.
 - Stream client includes reconnect handling and sender/session utilities.
+- `StreamConfigure.DeadlineTimeoutSec` is enforced client-side by `stream.StreamSession` timers and is not part of wire strategy.
+- Use `session.UpdateStrategy(...)` (instead of sender-only updates) when changing strategy so local deadline timers stay synchronized. Pass optional `deadlineTimeoutSec` if you want to change local deadline timing.
 - Tx submit helpers support both Helius Sender and standard Solana RPC.
 
 ## Error types

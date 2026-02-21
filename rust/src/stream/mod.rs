@@ -2,7 +2,8 @@
 //!
 //! - `client`: websocket transport, send queue, and reconnect handling.
 //! - `proto`: protocol messages shared with the stream service.
-//! - `session`: higher-level typed event stream with position tracking.
+//! - `session`: higher-level typed event stream with position tracking and
+//!   SDK-enforced deadline timers.
 
 /// Websocket connection and command sender.
 pub mod client;

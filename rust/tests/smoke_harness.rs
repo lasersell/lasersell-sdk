@@ -28,7 +28,6 @@ const DUMMY_TX_B64: &str = "dGVzdF90eA==";
 #[derive(Debug)]
 struct WsObserved {
     wallet_pubkey: String,
-    strategy: StrategyConfigMsg,
     position_id: u64,
     slippage_bps: Option<u16>,
 }
@@ -55,7 +54,6 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
     let expected_strategy = StrategyConfigMsg {
         target_profit_pct: 5.0,
         stop_loss_pct: 1.5,
-        deadline_timeout_sec: 45,
     };
     let (observed_tx, observed_rx) = oneshot::channel();
     let ws_state = WsState {
@@ -77,6 +75,7 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
         .connect(StreamConfigure {
             wallet_pubkeys: vec![TEST_WALLET.to_string()],
             strategy: expected_strategy,
+            deadline_timeout_sec: 45,
         })
         .await
         .expect("connect stream client to mock ws server");
@@ -121,10 +120,6 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
     assert_eq!(observed.wallet_pubkey, TEST_WALLET);
     assert_eq!(observed.position_id, TEST_POSITION_ID);
     assert_eq!(observed.slippage_bps, TEST_SLIPPAGE_BPS);
-    assert_eq!(
-        observed.strategy.deadline_timeout_sec, 45,
-        "strategy from configure should be preserved"
-    );
 
     let _ = shutdown_tx.send(());
     server_task.await.expect("mock ws server task should join");
@@ -324,7 +319,6 @@ async fn run_ws_protocol(
 
     Ok(WsObserved {
         wallet_pubkey: expected_wallet,
-        strategy,
         position_id: expected_position_id,
         slippage_bps,
     })

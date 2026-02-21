@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from .client import StreamClient, StreamClientError, StreamConfigure, StreamConnection, StreamSender
-from .proto import ServerMessage
+from .proto import ServerMessage, StrategyConfigMsg
 
 
 @dataclass(slots=True)
@@ -33,9 +34,18 @@ class StreamEvent:
 class StreamSession:
     """Stateful wrapper around a stream connection."""
 
-    def __init__(self, connection: StreamConnection) -> None:
+    def __init__(
+        self,
+        connection: StreamConnection,
+        strategy: StrategyConfigMsg | None = None,
+        deadline_timeout_sec: int = 0,
+    ) -> None:
         self._connection = connection
         self._positions_by_id: dict[int, PositionHandle] = {}
+        self._strategy: StrategyConfigMsg = dict(strategy or _default_strategy())
+        self._deadline_timeout_sec = max(0, int(deadline_timeout_sec))
+        self._opened_at: dict[str, float] = {}
+        self._deadline_tasks: dict[str, asyncio.Task[None]] = {}
 
     @classmethod
     async def connect(
@@ -44,11 +54,20 @@ class StreamSession:
         configure: StreamConfigure,
     ) -> "StreamSession":
         connection = await client.connect(configure)
-        return cls(connection)
+        return cls(
+            connection,
+            configure.strategy,
+            configure.deadline_timeout_sec,
+        )
 
     @classmethod
-    def from_connection(cls, connection: StreamConnection) -> "StreamSession":
-        return cls(connection)
+    def from_connection(
+        cls,
+        connection: StreamConnection,
+        strategy: StrategyConfigMsg | None = None,
+        deadline_timeout_sec: int = 0,
+    ) -> "StreamSession":
+        return cls(connection, strategy, deadline_timeout_sec)
 
     def sender(self) -> StreamSender:
         return self._connection.sender()
@@ -74,11 +93,30 @@ class StreamSession:
             if handle.wallet_pubkey == wallet and handle.mint == mint
         ]
 
-    def close(self, handle: PositionHandle) -> None:
-        self.sender().close_position(handle.token_account)
+    def close(self, handle: PositionHandle | None = None) -> None:
+        if handle is not None:
+            self.sender().close_position(handle.token_account)
+            return
+
+        for task in self._deadline_tasks.values():
+            task.cancel()
+        self._deadline_tasks.clear()
+        self._opened_at.clear()
+        self._connection.close()
 
     def request_exit_signal(self, handle: PositionHandle, slippage_bps: int | None = None) -> None:
         self.sender().request_exit_signal(handle.token_account, slippage_bps)
+
+    def update_strategy(
+        self,
+        strategy: StrategyConfigMsg,
+        deadline_timeout_sec: int | None = None,
+    ) -> None:
+        self._strategy = dict(strategy)
+        if deadline_timeout_sec is not None:
+            self._deadline_timeout_sec = max(0, int(deadline_timeout_sec))
+        self._reschedule_all_deadlines()
+        self.sender().update_strategy(strategy)
 
     async def recv(self) -> StreamEvent | None:
         message = await self._connection.recv()
@@ -101,6 +139,7 @@ class StreamSession:
                 entry_quote_units=int(message["entry_quote_units"]),
             )
             self._positions_by_id[position_id] = handle
+            self._arm_deadline(handle.token_account)
             return StreamEvent(type="position_opened", handle=handle, message=message)
 
         if message_type == "position_closed":
@@ -108,6 +147,9 @@ class StreamSession:
                 int(message["position_id"]),
                 message.get("token_account") if isinstance(message.get("token_account"), str) else None,
             )
+            token_account = handle.token_account if handle is not None else message.get("token_account")
+            if isinstance(token_account, str):
+                self._cancel_deadline_for(token_account)
             return StreamEvent(type="position_closed", handle=handle, message=message)
 
         if message_type == "exit_signal_with_tx":
@@ -156,6 +198,81 @@ class StreamSession:
 
         return None
 
+    def _deadline_seconds(self) -> float:
+        return float(self._deadline_timeout_sec)
+
+    def _arm_deadline(self, token_account: str) -> None:
+        self._cancel_deadline_task(token_account)
+
+        loop = asyncio.get_running_loop()
+        opened_at = loop.time()
+        self._opened_at[token_account] = opened_at
+
+        deadline_sec = self._deadline_seconds()
+        if deadline_sec == 0:
+            return
+
+        self._schedule_deadline(token_account, deadline_sec)
+
+    def _reschedule_all_deadlines(self) -> None:
+        for task in self._deadline_tasks.values():
+            task.cancel()
+        self._deadline_tasks.clear()
+
+        deadline_sec = self._deadline_seconds()
+        if deadline_sec == 0:
+            return
+
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        token_accounts = {handle.token_account for handle in self._positions_by_id.values()}
+        for token_account in token_accounts:
+            opened_at = self._opened_at.get(token_account)
+            if opened_at is None:
+                opened_at = now
+                self._opened_at[token_account] = opened_at
+
+            remaining = opened_at + deadline_sec - now
+            if remaining <= 0:
+                self._try_request_exit_signal(token_account)
+                continue
+            self._schedule_deadline(token_account, remaining)
+
+    def _schedule_deadline(self, token_account: str, remaining_sec: float) -> None:
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(remaining_sec)
+            except asyncio.CancelledError:
+                return
+            finally:
+                self._deadline_tasks.pop(token_account, None)
+
+            self._try_request_exit_signal(token_account)
+
+        self._deadline_tasks[token_account] = asyncio.create_task(_run())
+
+    def _try_request_exit_signal(self, token_account: str) -> None:
+        if not self._has_open_position_for_token(token_account):
+            return
+
+        try:
+            self.sender().request_exit_signal(token_account, None)
+        except (StreamClientError, RuntimeError):
+            # Ignore timer callback failures so recv loops keep running.
+            return
+
+    def _has_open_position_for_token(self, token_account: str) -> bool:
+        return any(handle.token_account == token_account for handle in self._positions_by_id.values())
+
+    def _cancel_deadline_for(self, token_account: str) -> None:
+        self._cancel_deadline_task(token_account)
+        self._opened_at.pop(token_account, None)
+
+    def _cancel_deadline_task(self, token_account: str) -> None:
+        task = self._deadline_tasks.pop(token_account, None)
+        if task is not None:
+            task.cancel()
+
 
 __all__ = [
     "PositionHandle",
@@ -166,3 +283,10 @@ __all__ = [
     "StreamConfigure",
     "StreamSender",
 ]
+
+
+def _default_strategy() -> StrategyConfigMsg:
+    return {
+        "target_profit_pct": 0.0,
+        "stop_loss_pct": 0.0,
+    }

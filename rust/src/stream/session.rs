@@ -2,14 +2,21 @@
 //!
 //! `StreamSession` consumes raw stream messages and emits typed events while
 //! maintaining an in-memory map of known positions.
+//! `StreamConfigure.deadline_timeout_sec` is enforced by SDK timers in this
+//! type.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::stream::client::{
     IntoPositionSelector, PositionSelector, StreamClient, StreamClientError, StreamConfigure,
     StreamConnection, StreamSender,
 };
-use crate::stream::proto::ServerMessage;
+use crate::stream::proto::{ServerMessage, StrategyConfigMsg};
 
 /// Snapshot of a tracked stream position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +89,11 @@ pub enum StreamEvent {
 pub struct StreamSession {
     connection: StreamConnection,
     positions: HashMap<u64, PositionHandle>,
+    strategy: StrategyConfigMsg,
+    deadline_timeout_sec: u64,
+    deadline_tasks: HashMap<String, JoinHandle<()>>,
+    opened_at: HashMap<String, Instant>,
+    open_tokens: Arc<RwLock<HashSet<String>>>,
 }
 
 impl StreamSession {
@@ -90,15 +102,35 @@ impl StreamSession {
         client: &StreamClient,
         configure: StreamConfigure,
     ) -> Result<Self, StreamClientError> {
+        let deadline_timeout_sec = configure.deadline_timeout_sec;
+        let strategy = configure.strategy.clone();
         let connection = client.connect(configure).await?;
-        Ok(Self::from_connection(connection))
+        Ok(Self::from_connection_with_strategy(
+            connection,
+            strategy,
+            deadline_timeout_sec,
+        ))
     }
 
     /// Creates a session from an existing low-level connection.
     pub fn from_connection(connection: StreamConnection) -> Self {
+        Self::from_connection_with_strategy(connection, default_strategy(), 0)
+    }
+
+    /// Creates a session from an existing connection with explicit strategy.
+    pub fn from_connection_with_strategy(
+        connection: StreamConnection,
+        strategy: StrategyConfigMsg,
+        deadline_timeout_sec: u64,
+    ) -> Self {
         Self {
             connection,
             positions: HashMap::new(),
+            strategy,
+            deadline_timeout_sec,
+            deadline_tasks: HashMap::new(),
+            opened_at: HashMap::new(),
+            open_tokens: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -122,8 +154,16 @@ impl StreamSession {
     }
 
     /// Requests close for a tracked position.
-    pub fn close(&self, handle: &PositionHandle) -> Result<(), StreamClientError> {
+    pub fn close_position(&self, handle: &PositionHandle) -> Result<(), StreamClientError> {
         self.sender().close_position(handle)
+    }
+
+    /// Cancels deadline timers and closes the underlying stream connection.
+    ///
+    /// This consumes the session. Any cloned [`StreamSender`] handles can keep
+    /// the worker alive until they are dropped.
+    pub fn close(mut self) {
+        self.cancel_all_deadlines();
     }
 
     /// Requests an exit signal for a tracked position.
@@ -136,6 +176,30 @@ impl StreamSession {
         slippage_bps: Option<u16>,
     ) -> Result<(), StreamClientError> {
         self.sender().request_exit_signal(handle, slippage_bps)
+    }
+
+    /// Updates strategy parameters and reschedules local deadline timers.
+    pub fn update_strategy(
+        &mut self,
+        strategy: StrategyConfigMsg,
+    ) -> Result<(), StreamClientError> {
+        self.sender().update_strategy(strategy.clone())?;
+        self.strategy = strategy;
+        self.reschedule_all_deadlines();
+        Ok(())
+    }
+
+    /// Updates server strategy and SDK-local deadline timeout together.
+    pub fn update_strategy_with_deadline(
+        &mut self,
+        strategy: StrategyConfigMsg,
+        deadline_timeout_sec: u64,
+    ) -> Result<(), StreamClientError> {
+        self.sender().update_strategy(strategy.clone())?;
+        self.strategy = strategy;
+        self.deadline_timeout_sec = deadline_timeout_sec;
+        self.reschedule_all_deadlines();
+        Ok(())
     }
 
     /// Receives the next message and maps it into a typed [`StreamEvent`].
@@ -166,6 +230,10 @@ impl StreamSession {
                     entry_quote_units: *entry_quote_units,
                 };
                 self.positions.insert(*position_id, handle.clone());
+                self.opened_at
+                    .insert(handle.token_account.clone(), Instant::now());
+                self.sync_open_tokens();
+                self.arm_deadline_for(&handle.token_account);
                 StreamEvent::PositionOpened { handle, message }
             }
             ServerMessage::PositionClosed {
@@ -174,6 +242,14 @@ impl StreamSession {
                 ..
             } => {
                 let handle = self.remove_position(*position_id, token_account.as_deref());
+                let token = handle
+                    .as_ref()
+                    .map(|position| position.token_account.clone())
+                    .or_else(|| token_account.clone());
+                if let Some(token_account) = token {
+                    self.cancel_deadline_for(&token_account);
+                }
+                self.sync_open_tokens();
                 StreamEvent::PositionClosed { handle, message }
             }
             ServerMessage::ExitSignalWithTx {
@@ -222,5 +298,141 @@ impl StreamSession {
             .iter()
             .find_map(|(id, handle)| (handle.token_account == account).then_some(*id))?;
         self.positions.remove(&removed_id)
+    }
+
+    fn deadline_duration(&self) -> Option<Duration> {
+        (self.deadline_timeout_sec > 0).then_some(Duration::from_secs(self.deadline_timeout_sec))
+    }
+
+    fn arm_deadline_for(&mut self, token_account: &str) {
+        self.cancel_deadline_task_for(token_account);
+
+        let Some(deadline) = self.deadline_duration() else {
+            return;
+        };
+
+        let opened_at = *self
+            .opened_at
+            .entry(token_account.to_string())
+            .or_insert_with(Instant::now);
+        let now = Instant::now();
+        let remaining = opened_at
+            .checked_add(deadline)
+            .and_then(|deadline_at| deadline_at.checked_duration_since(now))
+            .unwrap_or_default();
+
+        if remaining.is_zero() {
+            self.try_request_exit_signal(token_account);
+            return;
+        }
+
+        self.schedule_deadline_task(token_account.to_string(), remaining);
+    }
+
+    fn reschedule_all_deadlines(&mut self) {
+        self.cancel_all_deadline_tasks();
+
+        let Some(deadline) = self.deadline_duration() else {
+            return;
+        };
+
+        let now = Instant::now();
+        let mut token_accounts = HashSet::new();
+        for handle in self.positions.values() {
+            token_accounts.insert(handle.token_account.clone());
+        }
+
+        for token_account in token_accounts {
+            let opened_at = *self.opened_at.entry(token_account.clone()).or_insert(now);
+            let remaining = opened_at
+                .checked_add(deadline)
+                .and_then(|deadline_at| deadline_at.checked_duration_since(now))
+                .unwrap_or_default();
+
+            if remaining.is_zero() {
+                self.try_request_exit_signal(&token_account);
+                continue;
+            }
+
+            self.schedule_deadline_task(token_account, remaining);
+        }
+    }
+
+    fn schedule_deadline_task(&mut self, token_account: String, remaining: Duration) {
+        let sender = self.sender();
+        let open_tokens = Arc::clone(&self.open_tokens);
+        let token_for_map = token_account.clone();
+        let token_for_check = token_account.clone();
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(remaining).await;
+            let is_open = open_tokens
+                .read()
+                .map(|tokens| tokens.contains(&token_for_check))
+                .unwrap_or(false);
+            if is_open {
+                let _ = sender.request_exit_signal(token_account, None);
+            }
+        });
+        self.deadline_tasks.insert(token_for_map, task);
+    }
+
+    fn try_request_exit_signal(&self, token_account: &str) {
+        if !self.has_open_position_for_token(token_account) {
+            return;
+        }
+        let _ = self
+            .sender()
+            .request_exit_signal(token_account.to_string(), None);
+    }
+
+    fn has_open_position_for_token(&self, token_account: &str) -> bool {
+        self.positions
+            .values()
+            .any(|handle| handle.token_account == token_account)
+    }
+
+    fn cancel_deadline_for(&mut self, token_account: &str) {
+        self.cancel_deadline_task_for(token_account);
+        self.opened_at.remove(token_account);
+    }
+
+    fn cancel_deadline_task_for(&mut self, token_account: &str) {
+        if let Some(handle) = self.deadline_tasks.remove(token_account) {
+            handle.abort();
+        }
+    }
+
+    fn cancel_all_deadline_tasks(&mut self) {
+        for (_, handle) in self.deadline_tasks.drain() {
+            handle.abort();
+        }
+    }
+
+    fn cancel_all_deadlines(&mut self) {
+        self.cancel_all_deadline_tasks();
+        self.opened_at.clear();
+        self.sync_open_tokens();
+    }
+
+    fn sync_open_tokens(&self) {
+        if let Ok(mut guard) = self.open_tokens.write() {
+            guard.clear();
+            for handle in self.positions.values() {
+                guard.insert(handle.token_account.clone());
+            }
+        }
+    }
+}
+
+impl Drop for StreamSession {
+    fn drop(&mut self) {
+        self.cancel_all_deadline_tasks();
+    }
+}
+
+fn default_strategy() -> StrategyConfigMsg {
+    StrategyConfigMsg {
+        target_profit_pct: 0.0,
+        stop_loss_pct: 0.0,
     }
 }

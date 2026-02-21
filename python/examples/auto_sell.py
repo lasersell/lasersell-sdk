@@ -41,8 +41,8 @@ async def main() -> None:
             strategy={
                 "target_profit_pct": 5.0,
                 "stop_loss_pct": 1.5,
-                "deadline_timeout_sec": 45,
             },
+            deadline_timeout_sec=45,
         ),
     )
 

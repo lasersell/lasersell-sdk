@@ -43,8 +43,7 @@ func TestClientConfigureDeserializesLegacyWalletPubkeyString(t *testing.T) {
 		"wallet_pubkey":"11111111111111111111111111111111",
 		"strategy":{
 			"target_profit_pct":5.0,
-			"stop_loss_pct":1.5,
-			"deadline_timeout_sec":45
+			"stop_loss_pct":1.5
 		}
 	}`
 

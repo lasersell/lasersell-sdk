@@ -96,8 +96,9 @@ func invalidAPIKeyHeaderError(err error) error {
 
 // StreamConfigure configures wallets and strategy for a stream connection.
 type StreamConfigure struct {
-	WalletPubkeys []string          `json:"wallet_pubkeys"`
-	Strategy      StrategyConfigMsg `json:"strategy"`
+	WalletPubkeys      []string          `json:"wallet_pubkeys"`
+	Strategy           StrategyConfigMsg `json:"strategy"`
+	DeadlineTimeoutSec uint64            `json:"deadline_timeout_sec,omitempty"`
 }
 
 // SingleWalletStreamConfigure creates configuration for a single wallet.

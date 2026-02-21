@@ -118,6 +118,11 @@ pub struct StreamConfigure {
     pub wallet_pubkeys: Vec<String>,
     /// Strategy parameters evaluated server-side.
     pub strategy: StrategyConfigMsg,
+    /// SDK-local deadline timer configuration in seconds.
+    ///
+    /// This is enforced by `StreamSession` and is not sent to the stream
+    /// server.
+    pub deadline_timeout_sec: u64,
 }
 
 impl StreamConfigure {
@@ -126,6 +131,7 @@ impl StreamConfigure {
         Self {
             wallet_pubkeys: vec![wallet_pubkey.into()],
             strategy,
+            deadline_timeout_sec: 0,
         }
     }
 }

@@ -68,9 +68,8 @@ type MarketContextMsg struct {
 
 // StrategyConfigMsg defines stream-side exit strategy parameters.
 type StrategyConfigMsg struct {
-	TargetProfitPct    float64 `json:"target_profit_pct"`
-	StopLossPct        float64 `json:"stop_loss_pct"`
-	DeadlineTimeoutSec uint64  `json:"deadline_timeout_sec"`
+	TargetProfitPct float64 `json:"target_profit_pct"`
+	StopLossPct     float64 `json:"stop_loss_pct"`
 }
 
 // LimitsMsg captures server-advertised session limits.
