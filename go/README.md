@@ -98,6 +98,7 @@ streamClient := stream.NewStreamClient(apiKey).WithEndpoint("wss://stream-dev.ex
 - Stream client includes reconnect handling and sender/session utilities.
 - `StreamConfigure.DeadlineTimeoutSec` is enforced client-side by `stream.StreamSession` timers and is not part of wire strategy.
 - Use `session.UpdateStrategy(...)` (instead of sender-only updates) when changing strategy so local deadline timers stay synchronized. Pass optional `deadlineTimeoutSec` if you want to change local deadline timing.
+- Use `stream.SingleWalletStreamConfigureOptional(...)` / `stream.StrategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
 - Tx submit helpers support both Helius Sender and standard Solana RPC.
 
 ## Error types

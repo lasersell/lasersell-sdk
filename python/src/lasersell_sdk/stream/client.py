@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable, Mapping, cast
+from typing import Any, AsyncIterator, Callable, Mapping, TypedDict, cast
 
 from .proto import (
     ClientMessage,
@@ -34,6 +35,22 @@ class StreamConfigure:
     deadline_timeout_sec: int = 0
 
 
+class OptionalStrategyConfig(TypedDict, total=False):
+    target_profit_pct: float
+    stop_loss_pct: float
+
+
+def strategy_config_from_optional(
+    *,
+    target_profit_pct: float | None = None,
+    stop_loss_pct: float | None = None,
+) -> StrategyConfigMsg:
+    return {
+        "target_profit_pct": float(target_profit_pct) if target_profit_pct is not None else 0.0,
+        "stop_loss_pct": float(stop_loss_pct) if stop_loss_pct is not None else 0.0,
+    }
+
+
 def single_wallet_stream_configure(
     wallet_pubkey: str,
     strategy: StrategyConfigMsg,
@@ -45,6 +62,23 @@ def single_wallet_stream_configure(
         wallet_pubkeys=[wallet_pubkey],
         strategy=strategy,
         deadline_timeout_sec=deadline_timeout_sec,
+    )
+
+
+def single_wallet_stream_configure_optional(
+    wallet_pubkey: str,
+    *,
+    target_profit_pct: float | None = None,
+    stop_loss_pct: float | None = None,
+    deadline_timeout_sec: int | None = None,
+) -> StreamConfigure:
+    return StreamConfigure(
+        wallet_pubkeys=[wallet_pubkey],
+        strategy=strategy_config_from_optional(
+            target_profit_pct=target_profit_pct,
+            stop_loss_pct=stop_loss_pct,
+        ),
+        deadline_timeout_sec=0 if deadline_timeout_sec is None else int(deadline_timeout_sec),
     )
 
 
@@ -104,6 +138,7 @@ class StreamClient:
     async def connect(self, configure: StreamConfigure) -> "StreamConnection":
         """Opens a configured stream connection."""
 
+        _validate_strategy_and_deadline(configure.strategy, configure.deadline_timeout_sec)
         worker = StreamConnectionWorker(self._endpoint(), self._api_key, configure)
         await worker.wait_ready()
         return StreamConnection(worker)
@@ -548,9 +583,32 @@ def _as_exception(value: BaseException | str) -> BaseException | None:
     return None
 
 
+def _validate_strategy_and_deadline(strategy: StrategyConfigMsg, deadline_timeout_sec: int) -> None:
+    _validate_strategy_value(strategy["target_profit_pct"], "strategy.target_profit_pct")
+    _validate_strategy_value(strategy["stop_loss_pct"], "strategy.stop_loss_pct")
+
+    deadline = int(deadline_timeout_sec)
+    if deadline < 0:
+        raise StreamClientError.protocol("deadline_timeout_sec must be >= 0")
+    if strategy["target_profit_pct"] > 0 or strategy["stop_loss_pct"] > 0 or deadline > 0:
+        return
+
+    raise StreamClientError.protocol(
+        "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0"
+    )
+
+
+def _validate_strategy_value(value: float, field: str) -> None:
+    if not math.isfinite(value):
+        raise StreamClientError.protocol(f"{field} must be a finite number")
+    if value < 0:
+        raise StreamClientError.protocol(f"{field} must be >= 0")
+
+
 __all__ = [
     "LOCAL_STREAM_ENDPOINT",
     "STREAM_ENDPOINT",
+    "OptionalStrategyConfig",
     "PositionSelectorInput",
     "StreamClient",
     "StreamClientError",
@@ -558,5 +616,7 @@ __all__ = [
     "StreamConnection",
     "StreamReceiver",
     "StreamSender",
+    "strategy_config_from_optional",
     "single_wallet_stream_configure",
+    "single_wallet_stream_configure_optional",
 ]

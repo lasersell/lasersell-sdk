@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -82,6 +83,29 @@ func protocolError(message string) error {
 	return &StreamClientError{Kind: StreamClientErrorProtocol, Message: message}
 }
 
+func validateStrategyAndDeadline(strategy StrategyConfigMsg, deadlineTimeoutSec uint64) error {
+	if err := validateStrategyValue(strategy.TargetProfitPct, "strategy.target_profit_pct"); err != nil {
+		return err
+	}
+	if err := validateStrategyValue(strategy.StopLossPct, "strategy.stop_loss_pct"); err != nil {
+		return err
+	}
+	if strategy.TargetProfitPct > 0 || strategy.StopLossPct > 0 || deadlineTimeoutSec > 0 {
+		return nil
+	}
+	return protocolError("at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0")
+}
+
+func validateStrategyValue(value float64, field string) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return protocolError(fmt.Sprintf("%s must be a finite number", field))
+	}
+	if value < 0 {
+		return protocolError(fmt.Sprintf("%s must be >= 0", field))
+	}
+	return nil
+}
+
 func websocketError(err error) error {
 	return &StreamClientError{Kind: StreamClientErrorWebSocket, Err: err}
 }
@@ -101,12 +125,48 @@ type StreamConfigure struct {
 	DeadlineTimeoutSec uint64            `json:"deadline_timeout_sec,omitempty"`
 }
 
+// OptionalStrategyConfig holds optional TP/SL settings where nil means disabled.
+type OptionalStrategyConfig struct {
+	TargetProfitPct *float64
+	StopLossPct     *float64
+}
+
 // SingleWalletStreamConfigure creates configuration for a single wallet.
 func SingleWalletStreamConfigure(walletPubkey string, strategy StrategyConfigMsg) StreamConfigure {
 	return StreamConfigure{
 		WalletPubkeys: []string{walletPubkey},
 		Strategy:      strategy,
 	}
+}
+
+// StrategyConfigFromOptional builds wire strategy from optional TP/SL values.
+//
+// Nil values default to zero (disabled).
+func StrategyConfigFromOptional(optional OptionalStrategyConfig) StrategyConfigMsg {
+	strategy := StrategyConfigMsg{}
+	if optional.TargetProfitPct != nil {
+		strategy.TargetProfitPct = *optional.TargetProfitPct
+	}
+	if optional.StopLossPct != nil {
+		strategy.StopLossPct = *optional.StopLossPct
+	}
+	return strategy
+}
+
+// SingleWalletStreamConfigureOptional creates single-wallet config from optional TP/SL/deadline.
+func SingleWalletStreamConfigureOptional(
+	walletPubkey string,
+	optional OptionalStrategyConfig,
+	deadlineTimeoutSec *uint64,
+) StreamConfigure {
+	configure := StreamConfigure{
+		WalletPubkeys: []string{walletPubkey},
+		Strategy:      StrategyConfigFromOptional(optional),
+	}
+	if deadlineTimeoutSec != nil {
+		configure.DeadlineTimeoutSec = *deadlineTimeoutSec
+	}
+	return configure
 }
 
 // PositionSelector selects a target position by token account or position id.
@@ -165,6 +225,9 @@ func (c *StreamClient) WithEndpoint(endpoint string) *StreamClient {
 
 // Connect opens and configures a stream connection.
 func (c *StreamClient) Connect(ctx context.Context, configure StreamConfigure) (*StreamConnection, error) {
+	if err := validateStrategyAndDeadline(configure.Strategy, configure.DeadlineTimeoutSec); err != nil {
+		return nil, err
+	}
 	worker := newStreamConnectionWorker(c.endpoint(), c.apiKey, configure)
 	if err := worker.waitReady(ctx); err != nil {
 		return nil, err

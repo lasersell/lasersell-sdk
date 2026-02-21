@@ -20,6 +20,11 @@ export interface StreamConfigure {
   deadline_timeout_sec?: number;
 }
 
+export interface OptionalStrategyConfig {
+  target_profit_pct?: number;
+  stop_loss_pct?: number;
+}
+
 export interface StreamLanesOptions {
   /**
    * Maximum number of low-priority messages (currently `pnl_update`) to buffer.
@@ -39,6 +44,27 @@ export function singleWalletStreamConfigure(
   return {
     wallet_pubkeys: [walletPubkey],
     strategy,
+    deadline_timeout_sec: deadlineTimeoutSec,
+  };
+}
+
+export function strategyConfigFromOptional(
+  strategy: OptionalStrategyConfig = {},
+): StrategyConfigMsg {
+  return {
+    target_profit_pct: strategy.target_profit_pct ?? 0,
+    stop_loss_pct: strategy.stop_loss_pct ?? 0,
+  };
+}
+
+export function singleWalletStreamConfigureOptional(
+  walletPubkey: string,
+  strategy: OptionalStrategyConfig = {},
+  deadlineTimeoutSec = 0,
+): StreamConfigure {
+  return {
+    wallet_pubkeys: [walletPubkey],
+    strategy: strategyConfigFromOptional(strategy),
     deadline_timeout_sec: deadlineTimeoutSec,
   };
 }
@@ -129,6 +155,10 @@ export class StreamClient {
   }
 
   async connect(configure: StreamConfigure): Promise<StreamConnection> {
+    validateStrategyAndDeadline(
+      configure.strategy,
+      configure.deadline_timeout_sec ?? 0,
+    );
     const worker = new StreamConnectionWorker(
       this.endpoint(),
       this.apiKey,
@@ -142,6 +172,10 @@ export class StreamClient {
     configure: StreamConfigure,
     options: StreamLanesOptions = {},
   ): Promise<StreamConnectionLanes> {
+    validateStrategyAndDeadline(
+      configure.strategy,
+      configure.deadline_timeout_sec ?? 0,
+    );
     const worker = new StreamConnectionWorker(
       this.endpoint(),
       this.apiKey,
@@ -163,6 +197,44 @@ export class StreamClient {
       return LOCAL_STREAM_ENDPOINT;
     }
     return STREAM_ENDPOINT;
+  }
+}
+
+export function validateStrategyAndDeadline(
+  strategy: StrategyConfigMsg,
+  deadlineTimeoutSec: number,
+): void {
+  validateStrategyValue(strategy.target_profit_pct, "strategy.target_profit_pct");
+  validateStrategyValue(strategy.stop_loss_pct, "strategy.stop_loss_pct");
+
+  const deadline = Number(deadlineTimeoutSec);
+  if (!Number.isFinite(deadline)) {
+    throw StreamClientError.protocol(
+      "deadline_timeout_sec must be a finite number",
+    );
+  }
+  if (deadline < 0) {
+    throw StreamClientError.protocol("deadline_timeout_sec must be >= 0");
+  }
+  if (
+    strategy.target_profit_pct > 0 ||
+    strategy.stop_loss_pct > 0 ||
+    deadline > 0
+  ) {
+    return;
+  }
+
+  throw StreamClientError.protocol(
+    "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0",
+  );
+}
+
+function validateStrategyValue(value: number, field: string): void {
+  if (!Number.isFinite(value)) {
+    throw StreamClientError.protocol(`${field} must be a finite number`);
+  }
+  if (value < 0) {
+    throw StreamClientError.protocol(`${field} must be >= 0`);
   }
 }
 

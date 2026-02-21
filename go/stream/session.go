@@ -163,6 +163,16 @@ func (s *StreamSession) UpdateStrategy(
 	default:
 	}
 
+	s.mu.RLock()
+	nextDeadline := s.deadlineTimeoutSec
+	s.mu.RUnlock()
+	if len(deadlineTimeoutSec) > 0 {
+		nextDeadline = deadlineTimeoutSec[0]
+	}
+	if err := validateStrategyAndDeadline(strategy, nextDeadline); err != nil {
+		return err
+	}
+
 	if err := s.Sender().UpdateStrategy(strategy); err != nil {
 		return err
 	}
@@ -179,6 +189,15 @@ func (s *StreamSession) UpdateStrategy(
 		s.tryRequestExitSignal(tokenAccount)
 	}
 	return nil
+}
+
+// UpdateStrategyOptional updates strategy from optional TP/SL settings and optionally updates deadline.
+func (s *StreamSession) UpdateStrategyOptional(
+	ctx context.Context,
+	optional OptionalStrategyConfig,
+	deadlineTimeoutSec ...uint64,
+) error {
+	return s.UpdateStrategy(ctx, StrategyConfigFromOptional(optional), deadlineTimeoutSec...)
 }
 
 // Recv receives the next server message and maps it into StreamEvent.

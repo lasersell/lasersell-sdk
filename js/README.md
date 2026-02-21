@@ -65,18 +65,24 @@ const client = ExitApiClient.withApiKey("REPLACE_WITH_API_KEY").withLocalMode(tr
 ## Stream + auto-sell flow
 
 ```ts
-import { StreamClient, StreamSession, signUnsignedTx, sendViaHeliusSender } from "@lasersell/lasersell-sdk";
+import {
+  StreamClient,
+  StreamSession,
+  singleWalletStreamConfigureOptional,
+  signUnsignedTx,
+  sendViaHeliusSender,
+} from "@lasersell/lasersell-sdk";
 import { Keypair } from "@solana/web3.js";
 
 const client = new StreamClient("REPLACE_WITH_API_KEY");
-const session = await StreamSession.connect(client, {
-  wallet_pubkeys: ["REPLACE_WITH_WALLET_PUBKEY"],
-  strategy: {
-    target_profit_pct: 5,
-    stop_loss_pct: 1.5,
-  },
-  deadline_timeout_sec: 45,
-});
+const session = await StreamSession.connect(
+  client,
+  singleWalletStreamConfigureOptional(
+    "REPLACE_WITH_WALLET_PUBKEY",
+    {},
+    45, // timeout-only strategy is valid
+  ),
+);
 
 const signer = Keypair.generate();
 
@@ -94,6 +100,7 @@ while (true) {
 
 `deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
 Use `session.updateStrategy(...)` when changing strategy so local deadline timers stay in sync (pass a second `deadlineTimeoutSec` argument to change local deadline timing).
+Use `singleWalletStreamConfigureOptional(...)` / `strategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
 
 Use local stream endpoint instead of production:
 

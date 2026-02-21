@@ -13,8 +13,9 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use crate::stream::client::{
-    IntoPositionSelector, PositionSelector, StreamClient, StreamClientError, StreamConfigure,
-    StreamConnection, StreamSender,
+    strategy_config_from_optional, validate_strategy_thresholds, IntoPositionSelector,
+    PositionSelector, StreamClient, StreamClientError, StreamConfigure, StreamConnection,
+    StreamSender,
 };
 use crate::stream::proto::{ServerMessage, StrategyConfigMsg};
 
@@ -183,6 +184,7 @@ impl StreamSession {
         &mut self,
         strategy: StrategyConfigMsg,
     ) -> Result<(), StreamClientError> {
+        validate_strategy_thresholds(&strategy, self.deadline_timeout_sec)?;
         self.sender().update_strategy(strategy.clone())?;
         self.strategy = strategy;
         self.reschedule_all_deadlines();
@@ -195,11 +197,30 @@ impl StreamSession {
         strategy: StrategyConfigMsg,
         deadline_timeout_sec: u64,
     ) -> Result<(), StreamClientError> {
+        validate_strategy_thresholds(&strategy, deadline_timeout_sec)?;
         self.sender().update_strategy(strategy.clone())?;
         self.strategy = strategy;
         self.deadline_timeout_sec = deadline_timeout_sec;
         self.reschedule_all_deadlines();
         Ok(())
+    }
+
+    /// Updates strategy/deadline from optional settings.
+    ///
+    /// Unset TP/SL values default to `0.0` (disabled). When
+    /// `deadline_timeout_sec` is `None`, the current local deadline value is
+    /// retained.
+    pub fn update_strategy_optional(
+        &mut self,
+        target_profit_pct: Option<f64>,
+        stop_loss_pct: Option<f64>,
+        deadline_timeout_sec: Option<u64>,
+    ) -> Result<(), StreamClientError> {
+        let strategy = strategy_config_from_optional(target_profit_pct, stop_loss_pct);
+        match deadline_timeout_sec {
+            Some(deadline) => self.update_strategy_with_deadline(strategy, deadline),
+            None => self.update_strategy(strategy),
+        }
     }
 
     /// Receives the next message and maps it into a typed [`StreamEvent`].

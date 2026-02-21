@@ -4,6 +4,7 @@ from . import proto as _proto
 from .client import (
     LOCAL_STREAM_ENDPOINT,
     STREAM_ENDPOINT,
+    OptionalStrategyConfig,
     PositionSelectorInput,
     StreamClient,
     StreamClientError,
@@ -11,6 +12,8 @@ from .client import (
     StreamConnection,
     StreamReceiver,
     StreamSender,
+    single_wallet_stream_configure_optional,
+    strategy_config_from_optional,
     single_wallet_stream_configure,
 )
 from .proto import *
@@ -18,6 +21,7 @@ from .session import PositionHandle, StreamEvent, StreamSession
 
 __all__ = [
     "LOCAL_STREAM_ENDPOINT",
+    "OptionalStrategyConfig",
     "STREAM_ENDPOINT",
     "PositionHandle",
     "PositionSelectorInput",
@@ -29,6 +33,8 @@ __all__ = [
     "StreamReceiver",
     "StreamSender",
     "StreamSession",
+    "single_wallet_stream_configure_optional",
+    "strategy_config_from_optional",
     "single_wallet_stream_configure",
     *_proto.__all__,
 ]

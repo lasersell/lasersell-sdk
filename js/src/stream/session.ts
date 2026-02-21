@@ -1,9 +1,12 @@
 import {
+  type OptionalStrategyConfig,
   type PositionSelectorInput,
   StreamClient,
   type StreamConfigure,
   type StreamConnection,
   type StreamSender,
+  strategyConfigFromOptional,
+  validateStrategyAndDeadline,
 } from "./client.js";
 import type { ServerMessage, StrategyConfigMsg } from "./proto.js";
 
@@ -117,10 +120,21 @@ export class StreamSession {
     strategy: StrategyConfigMsg,
     deadlineTimeoutSec = this.deadlineTimeoutSec,
   ): void {
+    validateStrategyAndDeadline(strategy, deadlineTimeoutSec);
     this.strategy = { ...strategy };
     this.deadlineTimeoutSec = Math.max(0, deadlineTimeoutSec);
     this.rescheduleAllDeadlines();
     this.sender().updateStrategy({ ...strategy });
+  }
+
+  updateStrategyOptional(
+    strategy: OptionalStrategyConfig = {},
+    deadlineTimeoutSec = this.deadlineTimeoutSec,
+  ): void {
+    this.updateStrategy(
+      strategyConfigFromOptional(strategy),
+      deadlineTimeoutSec,
+    );
   }
 
   async recv(): Promise<StreamEvent | null> {

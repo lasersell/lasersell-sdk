@@ -80,7 +80,10 @@ import asyncio
 
 from solders.keypair import Keypair
 
-from lasersell_sdk.stream.client import StreamClient, StreamConfigure
+from lasersell_sdk.stream.client import (
+    StreamClient,
+    single_wallet_stream_configure_optional,
+)
 from lasersell_sdk.stream.session import StreamSession
 from lasersell_sdk.tx import send_via_helius_sender, sign_unsigned_tx
 
@@ -90,13 +93,9 @@ async def main() -> None:
     client = StreamClient("REPLACE_WITH_API_KEY")
     session = await StreamSession.connect(
         client,
-        StreamConfigure(
-            wallet_pubkeys=["REPLACE_WITH_WALLET_PUBKEY"],
-            strategy={
-                "target_profit_pct": 5.0,
-                "stop_loss_pct": 1.5,
-            },
-            deadline_timeout_sec=45,
+        single_wallet_stream_configure_optional(
+            "REPLACE_WITH_WALLET_PUBKEY",
+            deadline_timeout_sec=45,  # timeout-only strategy is valid
         ),
     )
 
@@ -116,6 +115,7 @@ asyncio.run(main())
 
 `deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
 Use `session.update_strategy(...)` when changing strategy so local deadline timers stay in sync (pass `deadline_timeout_sec=` to change local deadline timing).
+Use `single_wallet_stream_configure_optional(...)` / `strategy_config_from_optional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
 
 Notes:
 

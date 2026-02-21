@@ -5,7 +5,15 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from .client import StreamClient, StreamClientError, StreamConfigure, StreamConnection, StreamSender
+from .client import (
+    StreamClient,
+    StreamClientError,
+    StreamConfigure,
+    StreamConnection,
+    StreamSender,
+    _validate_strategy_and_deadline,
+    strategy_config_from_optional,
+)
 from .proto import ServerMessage, StrategyConfigMsg
 
 
@@ -112,11 +120,28 @@ class StreamSession:
         strategy: StrategyConfigMsg,
         deadline_timeout_sec: int | None = None,
     ) -> None:
+        deadline = self._deadline_timeout_sec if deadline_timeout_sec is None else int(deadline_timeout_sec)
+        _validate_strategy_and_deadline(strategy, deadline)
         self._strategy = dict(strategy)
         if deadline_timeout_sec is not None:
             self._deadline_timeout_sec = max(0, int(deadline_timeout_sec))
         self._reschedule_all_deadlines()
         self.sender().update_strategy(strategy)
+
+    def update_strategy_optional(
+        self,
+        *,
+        target_profit_pct: float | None = None,
+        stop_loss_pct: float | None = None,
+        deadline_timeout_sec: int | None = None,
+    ) -> None:
+        self.update_strategy(
+            strategy_config_from_optional(
+                target_profit_pct=target_profit_pct,
+                stop_loss_pct=stop_loss_pct,
+            ),
+            deadline_timeout_sec=deadline_timeout_sec,
+        )
 
     async def recv(self) -> StreamEvent | None:
         message = await self._connection.recv()

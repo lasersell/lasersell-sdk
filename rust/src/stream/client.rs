@@ -65,6 +65,8 @@ impl StreamClient {
         &self,
         configure: StreamConfigure,
     ) -> Result<StreamConnection, StreamClientError> {
+        validate_strategy_thresholds(&configure.strategy, configure.deadline_timeout_sec)?;
+
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
         let (status_tx, status_rx) = mpsc::unbounded_channel();
@@ -133,6 +135,36 @@ impl StreamConfigure {
             strategy,
             deadline_timeout_sec: 0,
         }
+    }
+
+    /// Convenience constructor for a single wallet with optional thresholds.
+    ///
+    /// Unset strategy values default to `0.0` (disabled), and unset deadline
+    /// defaults to `0` (disabled).
+    pub fn single_wallet_optional(
+        wallet_pubkey: impl Into<String>,
+        target_profit_pct: Option<f64>,
+        stop_loss_pct: Option<f64>,
+        deadline_timeout_sec: Option<u64>,
+    ) -> Self {
+        Self {
+            wallet_pubkeys: vec![wallet_pubkey.into()],
+            strategy: strategy_config_from_optional(target_profit_pct, stop_loss_pct),
+            deadline_timeout_sec: deadline_timeout_sec.unwrap_or(0),
+        }
+    }
+}
+
+/// Builds wire strategy config from optional TP/SL settings.
+///
+/// Unset values default to `0.0` (disabled).
+pub fn strategy_config_from_optional(
+    target_profit_pct: Option<f64>,
+    stop_loss_pct: Option<f64>,
+) -> StrategyConfigMsg {
+    StrategyConfigMsg {
+        target_profit_pct: target_profit_pct.unwrap_or(0.0),
+        stop_loss_pct: stop_loss_pct.unwrap_or(0.0),
     }
 }
 
@@ -422,6 +454,36 @@ pub enum StreamClientError {
     Protocol(String),
 }
 
+pub(crate) fn validate_strategy_thresholds(
+    strategy: &StrategyConfigMsg,
+    deadline_timeout_sec: u64,
+) -> Result<(), StreamClientError> {
+    validate_strategy_value(strategy.target_profit_pct, "strategy.target_profit_pct")?;
+    validate_strategy_value(strategy.stop_loss_pct, "strategy.stop_loss_pct")?;
+
+    if strategy.target_profit_pct > 0.0 || strategy.stop_loss_pct > 0.0 || deadline_timeout_sec > 0
+    {
+        return Ok(());
+    }
+
+    Err(StreamClientError::Protocol(
+        "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0"
+            .to_string(),
+    ))
+}
+
+fn validate_strategy_value(value: f64, field: &str) -> Result<(), StreamClientError> {
+    if !value.is_finite() {
+        return Err(StreamClientError::Protocol(format!(
+            "{field} must be a finite number"
+        )));
+    }
+    if value < 0.0 {
+        return Err(StreamClientError::Protocol(format!("{field} must be >= 0")));
+    }
+    Ok(())
+}
+
 enum SessionOutcome {
     GracefulShutdown,
     Reconnect,
@@ -683,7 +745,10 @@ async fn collect_messages_during_delay(
 mod tests {
     use secrecy::SecretString;
 
-    use super::{StreamClient, LOCAL_STREAM_ENDPOINT, STREAM_ENDPOINT};
+    use super::{
+        strategy_config_from_optional, validate_strategy_thresholds, StreamClient,
+        LOCAL_STREAM_ENDPOINT, STREAM_ENDPOINT,
+    };
 
     #[test]
     fn stream_client_uses_production_endpoint_by_default() {
@@ -704,5 +769,42 @@ mod tests {
             .with_local_mode(true)
             .with_endpoint("wss://stream-dev.example/ws   \n");
         assert_eq!(client.endpoint(), "wss://stream-dev.example/ws");
+    }
+
+    #[test]
+    fn optional_strategy_builder_defaults_unset_values_to_zero() {
+        let strategy = strategy_config_from_optional(None, Some(1.5));
+        assert_eq!(strategy.target_profit_pct, 0.0);
+        assert_eq!(strategy.stop_loss_pct, 1.5);
+    }
+
+    #[test]
+    fn validation_accepts_target_only() {
+        let strategy = strategy_config_from_optional(Some(2.0), None);
+        assert!(validate_strategy_thresholds(&strategy, 0).is_ok());
+    }
+
+    #[test]
+    fn validation_accepts_stop_only() {
+        let strategy = strategy_config_from_optional(None, Some(1.0));
+        assert!(validate_strategy_thresholds(&strategy, 0).is_ok());
+    }
+
+    #[test]
+    fn validation_accepts_deadline_only() {
+        let strategy = strategy_config_from_optional(None, None);
+        assert!(validate_strategy_thresholds(&strategy, 45).is_ok());
+    }
+
+    #[test]
+    fn validation_rejects_when_all_thresholds_disabled() {
+        let strategy = strategy_config_from_optional(None, None);
+        assert!(validate_strategy_thresholds(&strategy, 0).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_negative_values() {
+        let strategy = strategy_config_from_optional(Some(-1.0), None);
+        assert!(validate_strategy_thresholds(&strategy, 0).is_err());
     }
 }

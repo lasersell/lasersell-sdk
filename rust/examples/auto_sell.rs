@@ -14,8 +14,8 @@
 
 use std::error::Error;
 
-use lasersell_sdk::stream::client::{StreamClient, StreamConfigure};
-use lasersell_sdk::stream::proto::{ServerMessage, StrategyConfigMsg};
+use lasersell_sdk::stream::client::{strategy_config_from_optional, StreamClient, StreamConfigure};
+use lasersell_sdk::stream::proto::ServerMessage;
 use lasersell_sdk::stream::session::{StreamEvent, StreamSession};
 use lasersell_sdk::tx::{send_via_helius_sender, sign_unsigned_tx};
 use secrecy::SecretString;
@@ -62,10 +62,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = StreamClient::new(SecretString::new(api_key));
     let configure = StreamConfigure {
         wallet_pubkeys,
-        strategy: StrategyConfigMsg {
-            target_profit_pct: 5.0,
-            stop_loss_pct: 1.5,
-        },
+        strategy: strategy_config_from_optional(None, None),
         deadline_timeout_sec: 45,
     };
 
