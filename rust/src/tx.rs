@@ -13,6 +13,7 @@ use solana_sdk::signer::Signer;
 use solana_sdk::transaction::VersionedTransaction;
 use std::time::Duration;
 use thiserror::Error;
+use tracing::{debug, info, warn};
 
 macro_rules! helius_sender_base_url {
     () => {
@@ -117,7 +118,10 @@ pub fn sign_unsigned_tx(
         .map_err(TxSubmitError::DecodeUnsignedTx)?;
     let unsigned: VersionedTransaction =
         bincode::deserialize(&raw).map_err(TxSubmitError::DeserializeUnsignedTx)?;
-    VersionedTransaction::try_new(unsigned.message, &[keypair]).map_err(TxSubmitError::SignTx)
+    let signed =
+        VersionedTransaction::try_new(unsigned.message, &[keypair]).map_err(TxSubmitError::SignTx)?;
+    debug!(event = "tx_signed");
+    Ok(signed)
 }
 
 /// Fast-path signer for an unsigned base64-encoded Solana transaction.
@@ -212,6 +216,7 @@ pub async fn confirm_signature_via_rpc(
     signature: &str,
     timeout: std::time::Duration,
 ) -> Result<(), TxSubmitError> {
+    debug!(event = "tx_confirm_start", signature, timeout_ms = timeout.as_millis() as u64);
     let started = tokio::time::Instant::now();
 
     loop {
@@ -275,6 +280,7 @@ pub async fn confirm_signature_via_rpc(
 
         if !value.is_null() {
             if let Some(err) = value.get("err").filter(|err| !err.is_null()) {
+                warn!(event = "tx_failed_onchain", signature, error = %err);
                 return Err(TxSubmitError::TxFailed {
                     signature: signature.to_string(),
                     error: err.to_string(),
@@ -283,12 +289,14 @@ pub async fn confirm_signature_via_rpc(
 
             if let Some(status) = value.get("confirmationStatus").and_then(Value::as_str) {
                 if status == "confirmed" || status == "finalized" {
+                    info!(event = "tx_confirmed", signature, status);
                     return Ok(());
                 }
             }
         }
 
         if started.elapsed() >= timeout {
+            warn!(event = "tx_confirm_timeout", signature, elapsed_ms = started.elapsed().as_millis() as u64);
             return Err(TxSubmitError::ConfirmTimeout {
                 signature: signature.to_string(),
             });
@@ -327,6 +335,8 @@ async fn send_transaction_b64(
         "params": [tx_b64, config],
     });
 
+    debug!(event = "tx_submitting", target);
+
     let response = client
         .post(endpoint)
         .json(&payload)
@@ -347,6 +357,8 @@ async fn send_transaction_b64(
             source,
         })?;
 
+    debug!(event = "tx_submit_response", target, status = %status);
+
     if !status.is_success() {
         return Err(TxSubmitError::HttpStatus {
             target,
@@ -362,6 +374,7 @@ async fn send_transaction_b64(
             body: summarize_body(&body),
         })?;
     if let Some(err) = parsed.get("error") {
+        warn!(event = "tx_submit_rpc_error", target, error = %err);
         return Err(TxSubmitError::RpcError {
             target,
             error: err.to_string(),
@@ -374,14 +387,16 @@ async fn send_transaction_b64(
             target,
             response: parsed.to_string(),
         })?;
-    result
+    let signature = result
         .as_str()
         .filter(|signature| !signature.is_empty())
         .map(|signature| signature.to_string())
         .ok_or_else(|| TxSubmitError::MissingResult {
             target,
             response: result.to_string(),
-        })
+        })?;
+    info!(event = "tx_submitted", target, signature = %signature);
+    Ok(signature)
 }
 
 fn send_error_kind(error: &reqwest::Error) -> &'static str {

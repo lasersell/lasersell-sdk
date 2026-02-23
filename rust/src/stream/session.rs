@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use tracing::{debug, info};
 
 use crate::stream::client::{
     strategy_config_from_optional, validate_strategy_thresholds, IntoPositionSelector,
@@ -106,6 +107,7 @@ impl StreamSession {
         let deadline_timeout_sec = configure.deadline_timeout_sec;
         let strategy = configure.strategy.clone();
         let connection = client.connect(configure).await?;
+        debug!(event = "session_connected", deadline_timeout_sec);
         Ok(Self::from_connection_with_strategy(
             connection,
             strategy,
@@ -250,6 +252,7 @@ impl StreamSession {
                     tokens: *tokens,
                     entry_quote_units: *entry_quote_units,
                 };
+                info!(event = "session_position_opened", position_id, mint = %mint, tokens);
                 self.positions.insert(*position_id, handle.clone());
                 self.opened_at
                     .insert(handle.token_account.clone(), Instant::now());
@@ -262,6 +265,7 @@ impl StreamSession {
                 token_account,
                 ..
             } => {
+                info!(event = "session_position_closed", position_id);
                 let handle = self.remove_position(*position_id, token_account.as_deref());
                 let token = handle
                     .as_ref()
@@ -278,6 +282,7 @@ impl StreamSession {
                 token_account,
                 ..
             } => {
+                info!(event = "session_exit_signal_received", position_id);
                 let handle = self.find_position(*position_id, token_account.as_deref());
                 StreamEvent::ExitSignalWithTx { handle, message }
             }
@@ -343,10 +348,12 @@ impl StreamSession {
             .unwrap_or_default();
 
         if remaining.is_zero() {
+            info!(event = "session_deadline_fired", token_account);
             self.try_request_exit_signal(token_account);
             return;
         }
 
+        debug!(event = "session_deadline_armed", token_account, remaining_ms = remaining.as_millis() as u64);
         self.schedule_deadline_task(token_account.to_string(), remaining);
     }
 
@@ -391,6 +398,7 @@ impl StreamSession {
                 .map(|tokens| tokens.contains(&token_for_check))
                 .unwrap_or(false);
             if is_open {
+                info!(event = "session_deadline_fired", token_account = %token_account);
                 let _ = sender.request_exit_signal(token_account, None);
             }
         });

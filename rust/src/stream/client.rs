@@ -15,6 +15,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
+use tracing::{debug, info, warn};
+
 use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
@@ -502,6 +504,8 @@ async fn stream_connection_worker(
     let mut pending = VecDeque::new();
     let mut backoff = MIN_RECONNECT_BACKOFF;
 
+    debug!(event = "stream_connecting");
+
     loop {
         match run_connected_session(
             &url,
@@ -516,6 +520,7 @@ async fn stream_connection_worker(
         .await
         {
             Ok(SessionOutcome::GracefulShutdown) => {
+                info!(event = "stream_worker_graceful_shutdown");
                 let _ = status_tx.send(StreamConnectionStatus::Disconnected);
                 if let Some(tx) = ready_tx.take() {
                     let _ = tx.send(Err(StreamClientError::SendQueueClosed));
@@ -523,10 +528,12 @@ async fn stream_connection_worker(
                 break;
             }
             Ok(SessionOutcome::Reconnect) => {
+                warn!(event = "stream_worker_reconnect");
                 let _ = status_tx.send(StreamConnectionStatus::Disconnected);
                 backoff = MIN_RECONNECT_BACKOFF;
             }
             Err(err) => {
+                warn!(event = "stream_worker_connect_error", error = %err);
                 if let Some(tx) = ready_tx.take() {
                     let _ = tx.send(Err(err));
                     return;
@@ -538,6 +545,7 @@ async fn stream_connection_worker(
             break;
         }
 
+        debug!(event = "stream_reconnect_backoff", delay_ms = backoff.as_millis() as u64);
         if !collect_messages_during_delay(backoff, &mut outbound_rx, &mut pending).await {
             break;
         }
@@ -561,6 +569,7 @@ async fn run_connected_session(
     request.headers_mut().insert("x-api-key", api_key_header);
 
     let (mut socket, _) = connect_async(request).await?;
+    debug!(event = "stream_ws_connected");
 
     let first_server_message = recv_server_message_before_configure(&mut socket).await?;
 
@@ -569,6 +578,7 @@ async fn run_connected_session(
             "expected first server message to be hello_ok".to_string(),
         ));
     }
+    debug!(event = "stream_hello_ok_received");
     let _ = inbound_tx.send(first_server_message);
 
     let configure_msg = ClientMessage::Configure {
@@ -576,10 +586,12 @@ async fn run_connected_session(
         strategy: configure.strategy.clone(),
     };
     send_client_message(&mut socket, &configure_msg).await?;
+    debug!(event = "stream_configure_sent");
 
     let configured_message = recv_server_message_after_configure(&mut socket).await?;
     let _ = inbound_tx.send(configured_message);
     let _ = status_tx.send(StreamConnectionStatus::Connected);
+    info!(event = "stream_configured");
 
     if let Some(tx) = ready_tx.take() {
         let _ = tx.send(Ok(()));
@@ -613,9 +625,13 @@ async fn run_connected_session(
                     Some(Ok(Message::Text(text))) => {
                         match parse_server_message(&text) {
                             Ok(server_msg) => {
+                                debug!(event = "stream_server_msg", msg_type = server_msg_label(&server_msg));
                                 let _ = inbound_tx.send(server_msg);
                             }
-                            Err(_) => return Ok(SessionOutcome::Reconnect),
+                            Err(_) => {
+                                warn!(event = "stream_msg_parse_error");
+                                return Ok(SessionOutcome::Reconnect);
+                            }
                         }
                     }
                     Some(Ok(Message::Ping(payload))) => {
@@ -624,10 +640,19 @@ async fn run_connected_session(
                         }
                     }
                     Some(Ok(Message::Pong(_))) => {}
-                    Some(Ok(Message::Close(_))) => return Ok(SessionOutcome::Reconnect),
+                    Some(Ok(Message::Close(_))) => {
+                        debug!(event = "stream_ws_close_received");
+                        return Ok(SessionOutcome::Reconnect);
+                    }
                     Some(Ok(_)) => return Ok(SessionOutcome::Reconnect),
-                    Some(Err(_)) => return Ok(SessionOutcome::Reconnect),
-                    None => return Ok(SessionOutcome::Reconnect),
+                    Some(Err(_)) => {
+                        warn!(event = "stream_ws_error");
+                        return Ok(SessionOutcome::Reconnect);
+                    }
+                    None => {
+                        debug!(event = "stream_ws_ended");
+                        return Ok(SessionOutcome::Reconnect);
+                    }
                 }
             }
         }
@@ -701,6 +726,19 @@ where
                 ));
             }
         }
+    }
+}
+
+fn server_msg_label(msg: &ServerMessage) -> &'static str {
+    match msg {
+        ServerMessage::HelloOk { .. } => "hello_ok",
+        ServerMessage::BalanceUpdate { .. } => "balance_update",
+        ServerMessage::PositionOpened { .. } => "position_opened",
+        ServerMessage::PositionClosed { .. } => "position_closed",
+        ServerMessage::ExitSignalWithTx { .. } => "exit_signal_with_tx",
+        ServerMessage::PnlUpdate { .. } => "pnl_update",
+        ServerMessage::Pong { .. } => "pong",
+        ServerMessage::Error { .. } => "error",
     }
 }
 

@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use tracing::{debug, warn};
+
 use crate::retry::{retry_async, RetryPolicy};
 use crate::stream::proto::MarketContextMsg;
 
@@ -156,6 +158,8 @@ impl ExitApiClient {
         let endpoint = self.endpoint(path);
         let policy = self.retry_policy.clone();
 
+        debug!(event = "exit_api_build_tx", endpoint = %endpoint);
+
         retry_async(
             &policy,
             |_| {
@@ -202,14 +206,27 @@ impl ExitApiClient {
         let status = response.status();
         let body = response.text().await.map_err(ExitApiError::Transport)?;
 
+        debug!(event = "exit_api_response", status = %status);
+
         if !status.is_success() {
+            warn!(event = "exit_api_http_error", status = %status, body = %summarize_error_body(&body));
             return Err(ExitApiError::HttpStatus {
                 status,
                 body: summarize_error_body(&body),
             });
         }
 
-        parse_build_tx_response(&body)
+        let result = parse_build_tx_response(&body);
+        match &result {
+            Ok(resp) => {
+                debug!(event = "exit_api_build_tx_ok", tx_len = resp.tx.len());
+            }
+            Err(ExitApiError::EnvelopeStatus { status, detail }) => {
+                warn!(event = "exit_api_envelope_error", status = %status, detail = %detail);
+            }
+            _ => {}
+        }
+        result
     }
 }
 

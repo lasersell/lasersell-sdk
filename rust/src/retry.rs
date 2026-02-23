@@ -6,6 +6,8 @@
 use std::future::Future;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use tracing::debug;
+
 /// Policy controlling retry attempts and exponential backoff behavior.
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
@@ -74,6 +76,12 @@ where
                 }
 
                 let delay = policy.delay_for_attempt(attempt);
+                debug!(
+                    event = "retry_attempt_failed",
+                    attempt,
+                    max_attempts,
+                    delay_ms = delay.as_millis() as u64
+                );
                 if !delay.is_zero() {
                     tokio::time::sleep(delay).await;
                 }
