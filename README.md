@@ -35,7 +35,7 @@
 
 ## What can you build with the SDK?
 
-- **Automated exit strategies** — connect to the LaserSell stream, receive real-time exit signals with pre-built transactions, sign and submit in milliseconds.
+- **Automated exit strategies** — connect to the LaserSell Exit Intelligence stream, receive real-time exit signals with pre-built transactions, sign and submit in milliseconds.
 - **One-shot sells and buys** — build, sign, and submit a single transaction through the LaserSell API with optimized routing and slippage.
 - **Custom trading bots** — combine the stream, retry, and transaction modules to build production trading infrastructure.
 - **Portfolio management tools** — monitor positions, track PnL, and execute exits programmatically across multiple wallets.
@@ -112,7 +112,7 @@ signature = await send_transaction(SendTargetRpc(url="YOUR_RPC_URL"), signed_tx)
 
 ### 3. Automate exits with the stream
 
-Connect to the LaserSell stream to receive real-time exit signals with pre-built transactions:
+Connect to the LaserSell Exit Intelligence stream to receive real-time exit signals with pre-built transactions:
 
 ```ts
 import {
@@ -184,6 +184,10 @@ Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy
 ### What's the difference between the API client and the stream?
 
 The API client (`ExitApiClient`) is for one-shot operations: build a single buy or sell transaction on demand. The stream (`StreamClient` + `StreamSession`) is for continuous monitoring: it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, or timeout conditions are met.
+
+### What is the Exit Intelligence stream?
+
+The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit and stop-loss thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders).
 
 ### How does the LaserSell CLI relate to the SDK?
 
