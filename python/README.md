@@ -11,23 +11,16 @@ Modules:
 
 ## Install
 
-Published package:
-
 ```bash
-pip install lasersell-sdk[full]
+pip install lasersell-sdk
 ```
 
 From this repository:
 
 ```bash
 cd lasersell-sdk/python
-python -m pip install -e '.[full]'
+python -m pip install -e .
 ```
-
-Install only what you need:
-
-- `lasersell-sdk[stream]` for websocket stream support (`websockets`)
-- `lasersell-sdk[tx]` for Solana transaction signing support (`solders`)
 
 ## Package layout
 
