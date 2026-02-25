@@ -181,13 +181,13 @@ Learn more at [lasersell.io/security](https://www.lasersell.io/security).
 
 Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy lifting of DEX routing, slippage optimization, and transaction construction to the API, so your AI agent doesn't need to understand Solana's low-level mechanics. An agent can execute a trade in a single API call: pass a mint address and amount, get back a ready-to-sign transaction. This makes it straightforward to give any LLM or AI agent the ability to execute on Solana efficiently and reliably.
 
-### What's the difference between the API client and the stream?
-
-The API client (`ExitApiClient`) is for one-shot operations: build a single buy or sell transaction on demand. The stream (`StreamClient` + `StreamSession`) is for continuous monitoring: it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, or timeout conditions are met.
-
 ### What is the Exit Intelligence stream?
 
 The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit and stop-loss thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders).
+
+### What's the difference between the API client and the stream?
+
+The API client (`ExitApiClient`) is for one-shot operations: build a single buy or sell transaction on demand. The stream (`StreamClient` + `StreamSession`) is for continuous monitoring: it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, or timeout conditions are met.
 
 ### How does the LaserSell CLI relate to the SDK?
 
