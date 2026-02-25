@@ -19,8 +19,8 @@
   <a href="https://pkg.go.dev/github.com/lasersell/lasersell-sdk/go"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/lasersell/lasersell-sdk/go.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <br>
-  <a href="https://discord.gg/lasersell"><img alt="Discord" src="https://img.shields.io/discord/lasersell?label=Discord&logo=discord&color=5865F2"></a>
-  <a href="https://twitter.com/lasersellhq"><img alt="Twitter" src="https://img.shields.io/twitter/follow/lasersellhq?style=flat&logo=x&color=000000"></a>
+  <a href="https://discord.gg/lasersell"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white"></a>
+  <a href="https://x.com/lasersellhq"><img alt="X (Twitter)" src="https://img.shields.io/twitter/follow/lasersellhq?style=flat&logo=x&color=000000"></a>
 </p>
 
 ---
@@ -163,7 +163,7 @@ Full API reference and examples for each language:
 | LaserSell CLI (open source) | [github.com/lasersell/lasersell](https://github.com/lasersell/lasersell) |
 | SDKs (this repo) | [github.com/lasersell/lasersell-sdk](https://github.com/lasersell/lasersell-sdk) |
 | Discord | [discord.gg/lasersell](https://discord.gg/lasersell) |
-| Twitter | [@lasersellhq](https://twitter.com/lasersellhq) |
+| X (Twitter) | [@lasersellhq](https://x.com/lasersellhq) |
 
 ## Security
 

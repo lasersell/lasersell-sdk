@@ -56,7 +56,7 @@ Pump.fun, Raydium (LaunchLab, CPMM), Meteora (DBC, DAMM v2), Bags.fm
 - SDK repo: https://github.com/lasersell/lasersell-sdk
 - CLI repo: https://github.com/lasersell/lasersell
 - Discord: https://discord.gg/lasersell
-- Twitter: https://twitter.com/lasersellhq
+- Twitter: https://x.com/lasersellhq
 
 ## Documentation files
 
