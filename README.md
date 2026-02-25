@@ -179,7 +179,7 @@ Learn more at [lasersell.io/security](https://www.lasersell.io/security).
 
 ### Can I use the SDK to build an AI agent that trades on Solana?
 
-Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy lifting of DEX routing, slippage optimization, and transaction construction to the API, so your AI agent doesn't need to understand Solana's low-level mechanics. An agent can execute a trade in a single API call: pass a mint address and amount, get back a ready-to-sign transaction. This makes it straightforward to give any LLM or autonomous agent the ability to buy and sell tokens on Solana efficiently and reliably.
+Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy lifting of DEX routing, slippage optimization, and transaction construction to the API, so your AI agent doesn't need to understand Solana's low-level mechanics. An agent can execute a trade in a single API call: pass a mint address and amount, get back a ready-to-sign transaction. This makes it straightforward to give any LLM or AI agent the ability to execute on Solana efficiently and reliably.
 
 ### What's the difference between the API client and the stream?
 
