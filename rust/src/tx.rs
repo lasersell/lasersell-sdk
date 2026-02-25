@@ -26,10 +26,97 @@ const CONFIRM_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const RPC_SEND_MAX_RETRIES: u64 = 3;
 /// Base URL for Helius Sender.
 pub const HELIUS_SENDER_BASE_URL: &str = helius_sender_base_url!();
-/// Helius Sender endpoint used by [`send_via_helius_sender`] helpers.
+/// Helius Sender endpoint used by [`send_transaction`] helpers.
 pub const HELIUS_SENDER_FAST_URL: &str = concat!(helius_sender_base_url!(), "/fast");
 /// Ping endpoint used for connection warming.
 pub const HELIUS_SENDER_PING_URL: &str = concat!(helius_sender_base_url!(), "/ping");
+/// Default Astralane Iris region (Frankfurt).
+pub const ASTRALANE_DEFAULT_REGION: &str = "fr";
+
+/// Builds the Astralane Iris endpoint URL for a given region.
+///
+/// Known regions: `fr` (Frankfurt, recommended), `fr2`, `la` (San Francisco),
+/// `jp` (Tokyo), `ny` (New York), `ams` (Amsterdam, recommended), `ams2`,
+/// `lim` (Limburg), `sg` (Singapore), `lit` (Lithuania).
+pub fn astralane_iris_url(region: &str) -> String {
+    format!("https://{region}.gateway.astralane.io/iris")
+}
+
+/// Unified send target that selects the transaction submission endpoint.
+#[derive(Clone, Debug)]
+pub enum SendTarget {
+    /// Standard Solana JSON-RPC endpoint.
+    Rpc { url: String },
+    /// Helius Sender `/fast` endpoint.
+    HeliusSender,
+    /// Astralane Iris V1 gateway authenticated via `x-api-key` header.
+    Astralane {
+        api_key: String,
+        /// Regional endpoint prefix (e.g. `"fr"`, `"ams"`). Defaults to [`ASTRALANE_DEFAULT_REGION`].
+        region: Option<String>,
+    },
+}
+
+impl SendTarget {
+    /// Returns the HTTP endpoint URL to POST `sendTransaction` to.
+    pub fn endpoint(&self) -> String {
+        match self {
+            Self::Rpc { url } => url.clone(),
+            Self::HeliusSender => HELIUS_SENDER_FAST_URL.to_string(),
+            Self::Astralane { region, .. } => {
+                let r = region.as_deref().unwrap_or(ASTRALANE_DEFAULT_REGION);
+                astralane_iris_url(r)
+            }
+        }
+    }
+
+    /// Human-readable label for logging.
+    pub fn target_label(&self) -> &'static str {
+        match self {
+            Self::Rpc { .. } => "rpc",
+            Self::HeliusSender => "helius sender",
+            Self::Astralane { .. } => "astralane",
+        }
+    }
+
+    /// Whether to include `preflightCommitment` in the `sendTransaction` config.
+    pub fn include_preflight_commitment(&self) -> bool {
+        matches!(self, Self::Rpc { .. })
+    }
+}
+
+/// Submits a signed transaction via the specified [`SendTarget`].
+pub async fn send_transaction(
+    client: &Client,
+    target: &SendTarget,
+    tx: &VersionedTransaction,
+) -> Result<String, TxSubmitError> {
+    let tx_b64 = encode_signed_tx(tx)?;
+    send_transaction_b64_to(client, target, &tx_b64).await
+}
+
+/// Submits a signed base64-encoded transaction via the specified [`SendTarget`].
+pub async fn send_transaction_b64_to(
+    client: &Client,
+    target: &SendTarget,
+    tx_b64: &str,
+) -> Result<String, TxSubmitError> {
+    let extra_headers = match target {
+        SendTarget::Astralane { api_key, .. } => {
+            vec![("x-api-key", api_key.as_str())]
+        }
+        _ => vec![],
+    };
+    send_transaction_b64(
+        client,
+        &target.endpoint(),
+        target.target_label(),
+        tx_b64,
+        target.include_preflight_commitment(),
+        &extra_headers,
+    )
+    .await
+}
 
 /// Error returned when signing or submitting a transaction.
 #[derive(Debug, Error)]
@@ -163,49 +250,6 @@ pub fn encode_signed_tx(tx: &VersionedTransaction) -> Result<String, TxSubmitErr
     Ok(BASE64_STANDARD.encode(raw))
 }
 
-/// Submits a signed transaction to Helius Sender and returns its signature.
-pub async fn send_via_helius_sender(
-    client: &Client,
-    tx: &VersionedTransaction,
-) -> Result<String, TxSubmitError> {
-    let tx_b64 = encode_signed_tx(tx)?;
-    send_via_helius_sender_b64(client, &tx_b64).await
-}
-
-/// Submits a signed transaction to a standard Solana RPC endpoint.
-pub async fn send_via_rpc(
-    client: &Client,
-    rpc_url: &str,
-    tx: &VersionedTransaction,
-) -> Result<String, TxSubmitError> {
-    let tx_b64 = encode_signed_tx(tx)?;
-    send_via_rpc_b64(client, rpc_url, &tx_b64).await
-}
-
-/// Submits a signed transaction already encoded as base64 via Helius Sender.
-pub async fn send_via_helius_sender_b64(
-    client: &Client,
-    tx_b64: &str,
-) -> Result<String, TxSubmitError> {
-    send_transaction_b64(
-        client,
-        HELIUS_SENDER_FAST_URL,
-        "helius sender",
-        tx_b64,
-        false,
-    )
-    .await
-}
-
-/// Submits a signed transaction already encoded as base64 via RPC.
-pub async fn send_via_rpc_b64(
-    client: &Client,
-    rpc_url: &str,
-    tx_b64: &str,
-) -> Result<String, TxSubmitError> {
-    send_transaction_b64(client, rpc_url, "rpc", tx_b64, true).await
-}
-
 /// Confirms a submitted transaction signature via JSON-RPC polling.
 ///
 /// `sendTransaction` returning a signature only means the node accepted the packet.
@@ -311,6 +355,7 @@ async fn send_transaction_b64(
     target: &'static str,
     tx_b64: &str,
     include_preflight_commitment: bool,
+    extra_headers: &[(&str, &str)],
 ) -> Result<String, TxSubmitError> {
     let mut config = json!({
         "encoding": "base64",
@@ -337,9 +382,11 @@ async fn send_transaction_b64(
 
     debug!(event = "tx_submitting", target);
 
-    let response = client
-        .post(endpoint)
-        .json(&payload)
+    let mut request = client.post(endpoint).json(&payload);
+    for &(key, value) in extra_headers {
+        request = request.header(key, value);
+    }
+    let response = request
         .send()
         .await
         .map_err(|source| TxSubmitError::RequestSend {

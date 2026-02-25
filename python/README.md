@@ -1,15 +1,13 @@
 # lasersell-sdk (Python)
 
-Python SDK for LaserSell Exit API and stream websocket.
+Python SDK for the LaserSell API.
 
-This package ports the Rust SDK surfaces:
+Modules:
 
 - `exit_api`: build unsigned buy/sell transactions.
 - `stream`: websocket client, protocol types, and session helpers.
 - `tx`: sign/encode/send Solana transactions.
 - `retry`: shared retry helpers.
-
-`stream/proto` types from `lasersell-stream-proto` are included directly in this SDK (not a separate package).
 
 ## Install
 
@@ -40,7 +38,7 @@ Install only what you need:
 - `lasersell_sdk.tx`: sign/encode/send Solana transactions.
 - `lasersell_sdk.retry`: retry/backoff and timeout helpers.
 
-## Exit API (build sell)
+## Build a sell transaction
 
 ```python
 import asyncio
@@ -70,8 +68,7 @@ Notes:
 
 - `amount_tokens` is in token atomic units (smallest unit for the mint).
 - `slippage_bps` is basis points (`100` = `1%`, `2000` = `20%`).
-- Use `client.with_local_mode(True)` for local Exit API development (`http://localhost:8080`).
-- Use `client.with_base_url("https://api-dev.example")` to target a custom Exit API base URL.
+- Use `client.with_base_url("https://api-dev.example")` to target a custom base URL.
 
 ## Stream + auto-sell flow
 
@@ -85,7 +82,7 @@ from lasersell_sdk.stream.client import (
     single_wallet_stream_configure_optional,
 )
 from lasersell_sdk.stream.session import StreamSession
-from lasersell_sdk.tx import send_via_helius_sender, sign_unsigned_tx
+from lasersell_sdk.tx import SendTargetHeliusSender, send_transaction, sign_unsigned_tx
 
 
 async def main() -> None:
@@ -106,7 +103,7 @@ async def main() -> None:
 
         if event.type == "exit_signal_with_tx" and event.message.get("type") == "exit_signal_with_tx":
             signed_tx = sign_unsigned_tx(event.message["unsigned_tx_b64"], signer)
-            signature = await send_via_helius_sender(signed_tx)
+            signature = await send_transaction(SendTargetHeliusSender(), signed_tx)
             print(signature)
 
 
@@ -119,7 +116,6 @@ Use `single_wallet_stream_configure_optional(...)` / `strategy_config_from_optio
 
 Notes:
 
-- Use `client.with_local_mode(True)` for local stream development (`ws://localhost:8082/v1/ws`).
 - Use `client.with_endpoint("wss://stream-dev.example/v1/ws")` to target a custom stream endpoint.
 - `unsigned_tx_b64` from stream events can be signed with `lasersell_sdk.tx.sign_unsigned_tx`.
 

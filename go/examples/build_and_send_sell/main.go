@@ -56,15 +56,17 @@ func main() {
 		log.Fatalf("sign tx: %v", err)
 	}
 
-	var signature string
+	var target lasersell.SendTarget
 	switch sendTarget {
 	case "helius_sender":
-		signature, err = lasersell.SendViaHeliusSender(ctx, nil, signedTx)
+		target = lasersell.SendTargetHeliusSender()
 	case "rpc":
-		signature, err = lasersell.SendViaRPC(ctx, nil, rpcURL, signedTx)
+		target = lasersell.SendTargetRpc(rpcURL)
 	default:
 		log.Fatalf("sendTarget must be rpc or helius_sender (got %q)", sendTarget)
 	}
+
+	signature, err := lasersell.SendTransaction(ctx, nil, target, signedTx)
 	if err != nil {
 		log.Fatalf("submit tx: %v", err)
 	}

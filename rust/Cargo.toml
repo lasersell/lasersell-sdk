@@ -3,7 +3,14 @@ name = "lasersell-sdk"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "User-facing Rust SDK for LaserSell stream and Exit API"
+description = "Rust SDK for the LaserSell API"
+authors = ["LaserSell <support@lasersell.io>"]
+homepage = "https://lasersell.io"
+repository = "https://github.com/lasersell/lasersell-sdk"
+documentation = "https://github.com/lasersell/lasersell-sdk/tree/main/rust"
+readme = "README.md"
+keywords = ["solana", "trading", "defi", "sdk", "lasersell"]
+categories = ["api-bindings", "cryptography::cryptocurrencies"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

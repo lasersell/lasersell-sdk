@@ -1,0 +1,137 @@
+name: Publish SDKs
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sdk-publish
+  cancel-in-progress: false
+
+jobs:
+  # ── Rust → crates.io ──────────────────────────────────────────────
+  publish-rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify version matches tag
+        run: |
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['packages'][0]['version'])")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${CARGO_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::Cargo.toml version (${CARGO_VERSION}) does not match tag (${TAG_VERSION})"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish
+
+  # ── TypeScript → npm (Trusted Publishing via OIDC) ────────────────
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${PKG_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::package.json version (${PKG_VERSION}) does not match tag (${TAG_VERSION})"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public || { echo "::warning::npm publish failed (version may already exist)"; exit 0; }
+
+  # ── Python → PyPI (Trusted Publishing via OIDC) ───────────────────
+  publish-pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify version matches tag
+        run: |
+          PYPI_VERSION=$(python3 -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${PYPI_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::pyproject.toml version (${PYPI_VERSION}) does not match tag (${TAG_VERSION})"
+            exit 1
+          fi
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist/
+
+  # ── Go → create prefixed tag for module proxy ─────────────────────
+  tag-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Go module tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          GO_TAG="go/v${TAG_VERSION}"
+
+          if git ls-remote --tags origin "refs/tags/${GO_TAG}" | grep -q .; then
+            echo "Tag ${GO_TAG} already exists, skipping"
+          else
+            git config user.name "lasersell-ci"
+            git config user.email "ci@lasersell.app"
+            git tag "${GO_TAG}" "${GITHUB_SHA}"
+            git push origin "${GO_TAG}"
+            echo "Created and pushed ${GO_TAG}"
+          fi

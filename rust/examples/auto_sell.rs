@@ -17,7 +17,7 @@ use std::error::Error;
 use lasersell_sdk::stream::client::{strategy_config_from_optional, StreamClient, StreamConfigure};
 use lasersell_sdk::stream::proto::ServerMessage;
 use lasersell_sdk::stream::session::{StreamEvent, StreamSession};
-use lasersell_sdk::tx::{send_via_helius_sender, sign_unsigned_tx};
+use lasersell_sdk::tx::{send_transaction, sign_unsigned_tx, SendTarget};
 use secrecy::SecretString;
 use solana_sdk::signature::read_keypair_file;
 use tokio::task::JoinSet;
@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let sender = session.sender();
                 // Submit each exit in its own task so sends can overlap.
                 submissions.spawn(async move {
-                    let signature = send_via_helius_sender(&http, &signed_tx).await.map_err(
+                    let signature = send_transaction(&http, &SendTarget::HeliusSender, &signed_tx).await.map_err(
                         |error| {
                             format!(
                                 "send failed position_id={position_id} wallet={wallet_pubkey} mint={mint}: {error}"

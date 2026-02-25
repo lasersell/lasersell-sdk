@@ -5,13 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lasersell-sdk"
 version = "0.1.0"
-description = "Python SDK for LaserSell stream and Exit API"
+description = "Python SDK for the LaserSell API"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
   { name = "LaserSell" },
 ]
+keywords = ["solana", "trading", "defi", "sdk", "lasersell", "cryptocurrency"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -22,6 +23,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
 ]
 dependencies = []
 
@@ -34,8 +36,10 @@ full = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lasersell/lasersell-sdk"
+Homepage = "https://lasersell.io"
 Documentation = "https://github.com/lasersell/lasersell-sdk/tree/main/python"
+Repository = "https://github.com/lasersell/lasersell-sdk"
+"Bug Tracker" = "https://github.com/lasersell/lasersell-sdk/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

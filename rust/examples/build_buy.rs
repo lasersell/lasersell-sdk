@@ -28,7 +28,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         amount_quote_units: amount_quote_atomic,
         slippage_bps,
         mode: None,
-        referral_id: None,
+
+        send_mode: None,
+        tip_lamports: None,
     };
 
     let response = client.build_buy_tx(&request).await?;

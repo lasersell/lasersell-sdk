@@ -11,6 +11,111 @@ export const HELIUS_SENDER_BASE_URL = "https://sender.helius-rpc.com";
 export const HELIUS_SENDER_FAST_URL = `${HELIUS_SENDER_BASE_URL}/fast`;
 export const HELIUS_SENDER_PING_URL = `${HELIUS_SENDER_BASE_URL}/ping`;
 
+/** Default Astralane Iris region (Frankfurt). */
+export const ASTRALANE_DEFAULT_REGION = "fr";
+
+/**
+ * Builds the Astralane Iris endpoint URL for a given region.
+ *
+ * Known regions: `fr` (Frankfurt, recommended), `fr2`, `la` (San Francisco),
+ * `jp` (Tokyo), `ny` (New York), `ams` (Amsterdam, recommended), `ams2`,
+ * `lim` (Limburg), `sg` (Singapore), `lit` (Lithuania).
+ */
+export function astralaneIrisUrl(region: string): string {
+  return `https://${region}.gateway.astralane.io/iris`;
+}
+
+/** Unified send target that selects the transaction submission endpoint. */
+export type SendTarget =
+  | { kind: "rpc"; url: string }
+  | { kind: "helius_sender" }
+  | { kind: "astralane"; apiKey: string; region?: string };
+
+/** Creates an RPC send target. */
+export function sendTargetRpc(url: string): SendTarget {
+  return { kind: "rpc", url };
+}
+
+/** Creates a Helius Sender send target. */
+export function sendTargetHeliusSender(): SendTarget {
+  return { kind: "helius_sender" };
+}
+
+/** Creates an Astralane Iris send target. */
+export function sendTargetAstralane(apiKey: string, region?: string): SendTarget {
+  return { kind: "astralane", apiKey, region };
+}
+
+function sendTargetEndpoint(target: SendTarget): string {
+  switch (target.kind) {
+    case "rpc":
+      return target.url;
+    case "helius_sender":
+      return HELIUS_SENDER_FAST_URL;
+    case "astralane":
+      return astralaneIrisUrl(target.region ?? ASTRALANE_DEFAULT_REGION);
+  }
+}
+
+function sendTargetExtraHeaders(target: SendTarget): Record<string, string> {
+  if (target.kind === "astralane") {
+    return { "x-api-key": target.apiKey };
+  }
+  return {};
+}
+
+function sendTargetLabel(target: SendTarget): string {
+  switch (target.kind) {
+    case "rpc":
+      return "rpc";
+    case "helius_sender":
+      return "helius sender";
+    case "astralane":
+      return "astralane";
+  }
+}
+
+function sendTargetIncludePreflightCommitment(target: SendTarget): boolean {
+  return target.kind === "rpc";
+}
+
+/** Submits a signed transaction via the specified send target. */
+export async function sendTransaction(
+  target: SendTarget,
+  tx: VersionedTransaction,
+  options: SendTransactionOptions = {},
+): Promise<string> {
+  const txB64 = encodeSignedTx(tx);
+  return await sendTransactionB64To(target, txB64, options);
+}
+
+/** Submits a signed base64-encoded transaction via the specified send target. */
+export async function sendTransactionB64To(
+  target: SendTarget,
+  txB64: string,
+  options: SendTransactionOptions = {},
+): Promise<string> {
+  return await sendTransactionB64(
+    sendTargetEndpoint(target),
+    sendTargetLabel(target),
+    txB64,
+    sendTargetIncludePreflightCommitment(target),
+    options.fetch_impl ?? globalThis.fetch,
+    sendTargetExtraHeaders(target),
+  );
+}
+
+/** Signs an unsigned base64 transaction and sends via the specified send target. */
+export async function signAndSendUnsignedTxB64(
+  target: SendTarget,
+  unsignedTxB64: string,
+  signer: Signer,
+  options: SendTransactionOptions = {},
+): Promise<string> {
+  const signedTxB64 = signUnsignedTxB64Fast(unsignedTxB64, signer);
+  return await sendTransactionB64To(target, signedTxB64, options);
+}
+
 export type TxSubmitErrorKind =
   | "decode_unsigned_tx"
   | "deserialize_unsigned_tx"
@@ -193,75 +298,12 @@ export function signUnsignedTxB64Fast(
   }
 }
 
-export async function signAndSendUnsignedTxViaHeliusSenderB64(
-  unsignedTxB64: string,
-  signer: Signer,
-  options: SendTransactionOptions = {},
-): Promise<string> {
-  const signedTxB64 = signUnsignedTxB64Fast(unsignedTxB64, signer);
-  return await sendViaHeliusSenderB64(signedTxB64, options);
-}
-
-export async function signAndSendUnsignedTxViaRpcB64(
-  rpcUrl: string,
-  unsignedTxB64: string,
-  signer: Signer,
-  options: SendTransactionOptions = {},
-): Promise<string> {
-  const signedTxB64 = signUnsignedTxB64Fast(unsignedTxB64, signer);
-  return await sendViaRpcB64(rpcUrl, signedTxB64, options);
-}
-
 export function encodeSignedTx(tx: VersionedTransaction): string {
   try {
     return Buffer.from(tx.serialize()).toString("base64");
   } catch (error) {
     throw TxSubmitError.serializeTx(error);
   }
-}
-
-export async function sendViaHeliusSender(
-  tx: VersionedTransaction,
-  options: SendTransactionOptions = {},
-): Promise<string> {
-  const txB64 = encodeSignedTx(tx);
-  return await sendViaHeliusSenderB64(txB64, options);
-}
-
-export async function sendViaRpc(
-  rpcUrl: string,
-  tx: VersionedTransaction,
-  options: SendTransactionOptions = {},
-): Promise<string> {
-  const txB64 = encodeSignedTx(tx);
-  return await sendViaRpcB64(rpcUrl, txB64, options);
-}
-
-export async function sendViaHeliusSenderB64(
-  txB64: string,
-  options: SendTransactionOptions = {},
-): Promise<string> {
-  return await sendTransactionB64(
-    HELIUS_SENDER_FAST_URL,
-    "helius sender",
-    txB64,
-    false,
-    options.fetch_impl ?? globalThis.fetch,
-  );
-}
-
-export async function sendViaRpcB64(
-  rpcUrl: string,
-  txB64: string,
-  options: SendTransactionOptions = {},
-): Promise<string> {
-  return await sendTransactionB64(
-    rpcUrl,
-    "rpc",
-    txB64,
-    true,
-    options.fetch_impl ?? globalThis.fetch,
-  );
 }
 
 export interface SendTransactionOptions {
@@ -274,6 +316,7 @@ async function sendTransactionB64(
   txB64: string,
   includePreflightCommitment: boolean,
   fetchImpl: FetchLike | undefined,
+  extraHeaders: Record<string, string> = {},
 ): Promise<string> {
   if (typeof fetchImpl !== "function") {
     throw TxSubmitError.requestSend(target, "no fetch implementation available");
@@ -302,6 +345,7 @@ async function sendTransactionB64(
       method: "POST",
       headers: {
         "content-type": "application/json",
+        ...extraHeaders,
       },
       body: JSON.stringify(payload),
     });

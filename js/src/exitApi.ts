@@ -20,6 +20,9 @@ export const EXIT_API_DEFAULTS = {
 
 export type SellOutput = "SOL" | "USD1";
 
+/** Transaction send mode for the exit API. */
+export type SendMode = "helius_sender" | "astralane" | "rpc";
+
 export interface BuildSellTxRequest {
   mint: string;
   user_pubkey: string;
@@ -27,8 +30,11 @@ export interface BuildSellTxRequest {
   slippage_bps?: number;
   mode?: string;
   output?: SellOutput;
-  referral_id?: string;
   market_context?: MarketContextMsg;
+  /** Transaction send mode: `"helius_sender"`, `"astralane"`, or `"rpc"`. */
+  send_mode?: SendMode;
+  /** Optional tip amount in lamports for the transaction. */
+  tip_lamports?: number;
 }
 
 export interface BuildBuyTxRequest {
@@ -37,7 +43,10 @@ export interface BuildBuyTxRequest {
   amount_quote_units: number;
   slippage_bps?: number;
   mode?: string;
-  referral_id?: string;
+  /** Transaction send mode: `"helius_sender"`, `"astralane"`, or `"rpc"`. */
+  send_mode?: SendMode;
+  /** Optional tip amount in lamports for the transaction. */
+  tip_lamports?: number;
 }
 
 export interface BuildTxResponse {

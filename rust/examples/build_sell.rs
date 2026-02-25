@@ -30,8 +30,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         slippage_bps,
         mode: None,
         output: Some(SellOutput::Sol),
-        referral_id: None,
+
         market_context: None,
+        send_mode: None,
+        tip_lamports: None,
     };
 
     let response = client.build_sell_tx(&request).await?;

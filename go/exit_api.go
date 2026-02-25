@@ -138,8 +138,9 @@ type BuildSellTxRequest struct {
 	SlippageBps   *uint16                  `json:"slippage_bps,omitempty"`
 	Mode          *string                  `json:"mode,omitempty"`
 	Output        *SellOutput              `json:"output,omitempty"`
-	ReferralID    *string                  `json:"referral_id,omitempty"`
 	MarketContext *stream.MarketContextMsg `json:"market_context,omitempty"`
+	SendMode      *string                  `json:"send_mode,omitempty"`
+	TipLamports   *uint64                  `json:"tip_lamports,omitempty"`
 }
 
 // BuildBuyTxRequest is the request payload for POST /v1/buy.
@@ -149,7 +150,8 @@ type BuildBuyTxRequest struct {
 	AmountQuoteUnits uint64  `json:"amount_quote_units"`
 	SlippageBps      *uint16 `json:"slippage_bps,omitempty"`
 	Mode             *string `json:"mode,omitempty"`
-	ReferralID       *string `json:"referral_id,omitempty"`
+	SendMode         *string `json:"send_mode,omitempty"`
+	TipLamports      *uint64 `json:"tip_lamports,omitempty"`
 }
 
 // BuildTxResponse is the common buy/sell response payload.

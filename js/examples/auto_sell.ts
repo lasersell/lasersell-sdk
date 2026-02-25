@@ -20,7 +20,8 @@ import { Keypair } from "@solana/web3.js";
 import {
   StreamClient,
   StreamSession,
-  sendViaHeliusSender,
+  sendTransaction,
+  sendTargetHeliusSender,
   signUnsignedTx,
 } from "@lasersell/lasersell-sdk";
 
@@ -107,7 +108,7 @@ async function submitExitSignal(
 ): Promise<void> {
   try {
     const signedTx = signUnsignedTx(unsignedTxB64, signer);
-    const signature = await sendViaHeliusSender(signedTx);
+    const signature = await sendTransaction(sendTargetHeliusSender(), signedTx);
 
     if (closeAfterSubmit) {
       session.sender().closeById(positionId);

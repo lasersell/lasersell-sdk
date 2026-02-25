@@ -20,7 +20,7 @@ from pathlib import Path
 from solders.keypair import Keypair
 
 from lasersell_sdk.exit_api import BuildSellTxRequest, ExitApiClient, SellOutput
-from lasersell_sdk.tx import send_via_helius_sender, send_via_rpc, sign_unsigned_tx
+from lasersell_sdk.tx import SendTargetHeliusSender, SendTargetRpc, send_transaction, sign_unsigned_tx
 
 
 async def main() -> None:
@@ -44,11 +44,13 @@ async def main() -> None:
     signed_tx = sign_unsigned_tx(unsigned_tx_b64, keypair)
 
     if send_target == "helius_sender":
-        signature = await send_via_helius_sender(signed_tx)
+        target = SendTargetHeliusSender()
     elif send_target == "rpc":
-        signature = await send_via_rpc(rpc_url, signed_tx)
+        target = SendTargetRpc(url=rpc_url)
     else:
         raise ValueError(f"send_target must be rpc or helius_sender (got {send_target!r})")
+
+    signature = await send_transaction(target, signed_tx)
 
     print(f"signature={signature}")
 

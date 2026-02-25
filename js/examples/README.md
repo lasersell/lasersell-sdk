@@ -106,13 +106,6 @@ Behavior:
    - submits via Helius Sender
 4. Optionally sends `close_position` after successful submit
 
-## Local Mode
-
-To target local services, enable local mode in the example code:
-
-- Exit API: `client.withLocalMode(true)`
-- Stream: `new StreamClient(apiKey).withLocalMode(true)`
-
 ## Notes
 
 - Slippage is in basis points (`slippage_bps`).

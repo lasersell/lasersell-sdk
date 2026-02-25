@@ -248,12 +248,15 @@ pub struct BuildSellTxRequest {
     /// Desired output asset for sell proceeds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<SellOutput>,
-    /// Optional referral identifier.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub referral_id: Option<String>,
     /// Optional market routing hint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market_context: Option<MarketContextMsg>,
+    /// Transaction send mode: `"helius_sender"`, `"astralane"`, or `"rpc"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_mode: Option<String>,
+    /// Optional tip amount in lamports for the transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tip_lamports: Option<u64>,
 }
 
 /// Request payload for `POST /v1/buy`.
@@ -271,9 +274,12 @@ pub struct BuildBuyTxRequest {
     /// Optional backend mode override.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-    /// Optional referral identifier.
+    /// Transaction send mode: `"helius_sender"`, `"astralane"`, or `"rpc"`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub referral_id: Option<String>,
+    pub send_mode: Option<String>,
+    /// Optional tip amount in lamports for the transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tip_lamports: Option<u64>,
 }
 
 /// Preferred output asset for sell requests.
@@ -499,8 +505,10 @@ mod tests {
             slippage_bps: Some(1200),
             mode: Some("fast".to_string()),
             output: Some(SellOutput::Sol),
-            referral_id: None,
+
             market_context: None,
+            send_mode: None,
+            tip_lamports: None,
         };
 
         let value = serde_json::to_value(request).expect("serialize request");

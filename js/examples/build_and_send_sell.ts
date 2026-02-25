@@ -15,8 +15,9 @@ import { readFile } from "node:fs/promises";
 import { Keypair } from "@solana/web3.js";
 import {
   ExitApiClient,
-  sendViaHeliusSender,
-  sendViaRpc,
+  sendTransaction,
+  sendTargetHeliusSender,
+  sendTargetRpc,
   signUnsignedTx,
   type BuildSellTxRequest,
 } from "@lasersell/lasersell-sdk";
@@ -43,10 +44,11 @@ async function main(): Promise<void> {
   const unsignedTxB64 = await client.buildSellTxB64(request);
   const signedTx = signUnsignedTx(unsignedTxB64, keypair);
 
-  const signature =
+  const target =
     sendTarget === "helius_sender"
-      ? await sendViaHeliusSender(signedTx)
-      : await sendViaRpc(rpcUrl, signedTx);
+      ? sendTargetHeliusSender()
+      : sendTargetRpc(rpcUrl);
+  const signature = await sendTransaction(target, signedTx);
 
   console.log(`signature=${signature}`);
 }

@@ -148,8 +148,10 @@ async fn exit_api_client_smoke_posts_required_sell_fields_and_parses_envelope() 
         slippage_bps: Some(1500),
         mode: None,
         output: Some(SellOutput::Sol),
-        referral_id: None,
+
         market_context: None,
+        send_mode: None,
+        tip_lamports: None,
     };
 
     let response = client

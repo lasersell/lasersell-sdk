@@ -1,14 +1,12 @@
 # @lasersell/lasersell-sdk
 
-TypeScript SDK for LaserSell Exit API and stream websocket.
+TypeScript SDK for the LaserSell API.
 
-This package ports the Rust SDK surfaces:
+Modules:
 - `exit-api`: build unsigned buy/sell transactions.
 - `stream`: websocket client, protocol types, and session helpers.
 - `tx`: sign/encode/send Solana transactions.
 - `retry`: shared retry helpers.
-
-`stream/proto` types from `lasersell-stream-proto` are included directly in this SDK (not a separate npm package).
 
 ## Install
 
@@ -25,7 +23,7 @@ npm install
 
 ## API Surface
 
-- Exit API client:
+- LaserSell API client:
   - `ExitApiClient`
   - `BuildBuyTxRequest`, `BuildSellTxRequest`, `BuildTxResponse`
 - Stream client and session:
@@ -35,9 +33,10 @@ npm install
   - `ClientMessage`, `ServerMessage`, `StrategyConfigMsg`, `MarketContextMsg`
 - Transaction helpers:
   - `signUnsignedTx`, `encodeSignedTx`
-  - `sendViaHeliusSender`, `sendViaRpc`
+  - `sendTransaction`, `sendTransactionB64To`
+  - `sendTargetRpc`, `sendTargetHeliusSender`, `sendTargetAstralane`
 
-## Exit API (build sell)
+## Build a sell transaction
 
 ```ts
 import { ExitApiClient, type BuildSellTxRequest } from "@lasersell/lasersell-sdk";
@@ -56,12 +55,6 @@ const response = await client.buildSellTx(request);
 console.log(response.tx);
 ```
 
-Use local backend endpoints instead of production:
-
-```ts
-const client = ExitApiClient.withApiKey("REPLACE_WITH_API_KEY").withLocalMode(true);
-```
-
 ## Stream + auto-sell flow
 
 ```ts
@@ -70,7 +63,8 @@ import {
   StreamSession,
   singleWalletStreamConfigureOptional,
   signUnsignedTx,
-  sendViaHeliusSender,
+  sendTransaction,
+  sendTargetHeliusSender,
 } from "@lasersell/lasersell-sdk";
 import { Keypair } from "@solana/web3.js";
 
@@ -92,7 +86,7 @@ while (true) {
 
   if (event.type === "exit_signal_with_tx" && event.message.type === "exit_signal_with_tx") {
     const signed = signUnsignedTx(event.message.unsigned_tx_b64, signer);
-    const signature = await sendViaHeliusSender(signed);
+    const signature = await sendTransaction(sendTargetHeliusSender(), signed);
     console.log(signature);
   }
 }
@@ -101,12 +95,6 @@ while (true) {
 `deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
 Use `session.updateStrategy(...)` when changing strategy so local deadline timers stay in sync (pass a second `deadlineTimeoutSec` argument to change local deadline timing).
 Use `singleWalletStreamConfigureOptional(...)` / `strategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
-
-Use local stream endpoint instead of production:
-
-```ts
-const client = new StreamClient("REPLACE_WITH_API_KEY").withLocalMode(true);
-```
 
 ## Examples
 

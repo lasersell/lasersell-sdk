@@ -20,7 +20,7 @@ from solders.keypair import Keypair
 
 from lasersell_sdk.stream.client import StreamClient, StreamConfigure
 from lasersell_sdk.stream.session import StreamSession
-from lasersell_sdk.tx import send_via_helius_sender, sign_unsigned_tx
+from lasersell_sdk.tx import SendTargetHeliusSender, send_transaction, sign_unsigned_tx
 
 
 async def main() -> None:
@@ -101,7 +101,7 @@ async def submit_exit_signal(
 ) -> None:
     try:
         signed_tx = sign_unsigned_tx(unsigned_tx_b64, signer)
-        signature = await send_via_helius_sender(signed_tx)
+        signature = await send_transaction(SendTargetHeliusSender(), signed_tx)
 
         if close_after_submit:
             session.sender().close_by_id(position_id)

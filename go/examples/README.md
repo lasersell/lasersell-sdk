@@ -26,16 +26,3 @@ Each file contains placeholder values and setup notes near the top.
 
 - `build_*` examples only call Exit API and print unsigned tx base64.
 - `build_and_send_sell` and `auto_sell` require a local Solana keypair file.
-- For local development services, toggle local mode on clients:
-
-```go
-exitClient := lasersell.NewExitAPIClientWithAPIKey(apiKey).WithLocalMode(true)
-streamClient := stream.NewStreamClient(apiKey).WithLocalMode(true)
-```
-
-Or point at custom environments directly:
-
-```go
-exitClient := lasersell.NewExitAPIClientWithAPIKey(apiKey).WithBaseURL("https://api-dev.example")
-streamClient := stream.NewStreamClient(apiKey).WithEndpoint("wss://stream-dev.example/v1/ws")
-```

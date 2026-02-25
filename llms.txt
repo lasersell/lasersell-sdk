@@ -1,0 +1,67 @@
+# LaserSell SDK
+
+> Ultra-low latency Solana execution infrastructure. Non-custodial. Multi-language.
+
+LaserSell is a professional Solana trade execution API. It builds optimized transactions across major Solana DEXs (Raydium, Pump.fun, Meteora), handles adaptive slippage, and monitors positions in real time. The SDK is the client library for interacting with the LaserSell API.
+
+## What the SDK does
+
+- Builds unsigned buy and sell transactions via the LaserSell API with optimized DEX routing and slippage
+- Connects to the LaserSell real-time stream to receive exit signals with pre-built transactions
+- Signs transactions locally (non-custodial — private keys never leave the client)
+- Submits signed transactions to Solana via multiple backends (standard RPC, Helius Sender, Astralane Iris)
+- Supports automated exit strategies: take-profit, stop-loss, and deadline timeouts
+
+## Languages
+
+- TypeScript/JavaScript: `npm install @lasersell/lasersell-sdk`
+- Python: `pip install lasersell-sdk`
+- Rust: `cargo add lasersell-sdk`
+- Go: `go get github.com/lasersell/lasersell-sdk/go`
+
+## Key concepts
+
+- `ExitApiClient`: HTTP client for building unsigned transactions (buy/sell)
+- `StreamClient` + `StreamSession`: WebSocket client for real-time position monitoring and exit signals
+- `SendTarget`: Unified transaction submission abstraction (RPC, Helius Sender, Astralane Iris)
+- `signUnsignedTx`: Local transaction signing (non-custodial)
+- `sendTransaction`: Submit signed transactions to Solana
+
+## Typical flow
+
+1. Get a free API key at https://app.lasersell.io/auth/sign-up
+2. Build an unsigned transaction with `ExitApiClient.buildSellTx()` or `buildBuyTx()`
+3. Sign the transaction locally with your wallet keypair
+4. Submit the signed transaction via `sendTransaction(target, signedTx)`
+
+For automated exits: connect to the stream, receive exit signals with pre-built transactions, sign and submit in milliseconds.
+
+## Use cases
+
+- Automated exit strategies (take-profit, stop-loss, timeout)
+- One-shot token buys and sells with optimized routing
+- AI agent trading on Solana (the API handles DEX routing and transaction building, agents just call the SDK)
+- Custom trading bots and portfolio management tools
+- Real-time position monitoring across multiple wallets
+
+## Supported DEXs
+
+Pump.fun, Raydium (LaunchLab, CPMM), Meteora (DBC, DAMM v2), Bags.fm
+
+## Links
+
+- Website: https://lasersell.io
+- Dashboard & API keys: https://app.lasersell.io
+- Documentation: https://docs.lasersell.io
+- SDK repo: https://github.com/lasersell/lasersell-sdk
+- CLI repo: https://github.com/lasersell/lasersell
+- Discord: https://discord.gg/lasersell
+- Twitter: https://twitter.com/lasersellhq
+
+## Documentation files
+
+- [Root README](https://github.com/lasersell/lasersell-sdk/blob/main/README.md)
+- [TypeScript SDK](https://github.com/lasersell/lasersell-sdk/blob/main/js/README.md)
+- [Python SDK](https://github.com/lasersell/lasersell-sdk/blob/main/python/README.md)
+- [Rust SDK](https://github.com/lasersell/lasersell-sdk/blob/main/rust/README.md)
+- [Go SDK](https://github.com/lasersell/lasersell-sdk/blob/main/go/README.md)

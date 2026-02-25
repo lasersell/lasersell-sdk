@@ -92,7 +92,7 @@ func main() {
 					return
 				}
 
-				signature, err := lasersell.SendViaHeliusSender(ctx, nil, signedTx)
+				signature, err := lasersell.SendTransaction(ctx, nil, lasersell.SendTargetHeliusSender(), signedTx)
 				if err != nil {
 					log.Printf(
 						"send failed position_id=%d wallet=%s mint=%s: %v",

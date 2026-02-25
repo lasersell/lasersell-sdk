@@ -62,8 +62,9 @@ class BuildSellTxRequest:
     slippage_bps: int | None = None
     mode: str | None = None
     output: SellOutput | str | None = None
-    referral_id: str | None = None
     market_context: MarketContextMsg | None = None
+    send_mode: str | None = None
+    tip_lamports: int | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -78,10 +79,12 @@ class BuildSellTxRequest:
             payload["mode"] = self.mode
         if self.output is not None:
             payload["output"] = self.output.value if isinstance(self.output, SellOutput) else self.output
-        if self.referral_id is not None:
-            payload["referral_id"] = self.referral_id
         if self.market_context is not None:
             payload["market_context"] = dict(self.market_context)
+        if self.send_mode is not None:
+            payload["send_mode"] = self.send_mode
+        if self.tip_lamports is not None:
+            payload["tip_lamports"] = self.tip_lamports
 
         return payload
 
@@ -95,7 +98,8 @@ class BuildBuyTxRequest:
     amount_quote_units: int
     slippage_bps: int | None = None
     mode: str | None = None
-    referral_id: str | None = None
+    send_mode: str | None = None
+    tip_lamports: int | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -108,8 +112,10 @@ class BuildBuyTxRequest:
             payload["slippage_bps"] = self.slippage_bps
         if self.mode is not None:
             payload["mode"] = self.mode
-        if self.referral_id is not None:
-            payload["referral_id"] = self.referral_id
+        if self.send_mode is not None:
+            payload["send_mode"] = self.send_mode
+        if self.tip_lamports is not None:
+            payload["tip_lamports"] = self.tip_lamports
 
         return payload
 

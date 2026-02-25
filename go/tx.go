@@ -20,7 +20,123 @@ const (
 	txErrorBodySnippetLen = 220
 	// HeliusSenderFastURL is the Helius Sender endpoint used by send helpers.
 	HeliusSenderFastURL = "https://sender.helius-rpc.com/fast"
+	// AstralaneDefaultRegion is the default Astralane Iris region (Frankfurt).
+	AstralaneDefaultRegion = "fr"
 )
+
+// AstralaneIrisURL builds the Astralane Iris endpoint URL for a given region.
+//
+// Known regions: fr (Frankfurt, recommended), fr2, la (San Francisco),
+// jp (Tokyo), ny (New York), ams (Amsterdam, recommended), ams2,
+// lim (Limburg), sg (Singapore), lit (Lithuania).
+func AstralaneIrisURL(region string) string {
+	return "https://" + region + ".gateway.astralane.io/iris"
+}
+
+type sendTargetKind int
+
+const (
+	sendTargetKindRpc sendTargetKind = iota
+	sendTargetKindHeliusSender
+	sendTargetKindAstralane
+)
+
+// SendTarget selects the transaction submission endpoint.
+type SendTarget struct {
+	kind   sendTargetKind
+	url    string
+	apiKey string
+	region string
+}
+
+// SendTargetRpc creates a send target for a standard Solana RPC endpoint.
+func SendTargetRpc(url string) SendTarget {
+	return SendTarget{kind: sendTargetKindRpc, url: url}
+}
+
+// SendTargetHeliusSender creates a send target for Helius Sender /fast.
+func SendTargetHeliusSender() SendTarget {
+	return SendTarget{kind: sendTargetKindHeliusSender}
+}
+
+// SendTargetAstralane creates a send target for the Astralane Iris V1 gateway.
+// Uses the default Frankfurt region. Use [SendTargetAstralaneRegion] for a specific region.
+func SendTargetAstralane(apiKey string) SendTarget {
+	return SendTarget{kind: sendTargetKindAstralane, apiKey: apiKey}
+}
+
+// SendTargetAstralaneRegion creates a send target for a specific Astralane Iris region.
+func SendTargetAstralaneRegion(apiKey, region string) SendTarget {
+	return SendTarget{kind: sendTargetKindAstralane, apiKey: apiKey, region: region}
+}
+
+// Endpoint returns the HTTP URL to POST sendTransaction to.
+func (t SendTarget) Endpoint() string {
+	switch t.kind {
+	case sendTargetKindRpc:
+		return t.url
+	case sendTargetKindHeliusSender:
+		return HeliusSenderFastURL
+	case sendTargetKindAstralane:
+		region := t.region
+		if region == "" {
+			region = AstralaneDefaultRegion
+		}
+		return AstralaneIrisURL(region)
+	default:
+		return t.url
+	}
+}
+
+// TargetLabel returns a human-readable label for logging.
+func (t SendTarget) TargetLabel() string {
+	switch t.kind {
+	case sendTargetKindRpc:
+		return "rpc"
+	case sendTargetKindHeliusSender:
+		return "helius sender"
+	case sendTargetKindAstralane:
+		return "astralane"
+	default:
+		return "unknown"
+	}
+}
+
+// IncludePreflightCommitment reports whether to include preflightCommitment in the config.
+func (t SendTarget) IncludePreflightCommitment() bool {
+	return t.kind == sendTargetKindRpc
+}
+
+// SendTransaction submits a signed transaction via the specified send target.
+func SendTransaction(
+	ctx context.Context,
+	client *http.Client,
+	target SendTarget,
+	tx *solana.Transaction,
+) (string, error) {
+	txB64, err := EncodeSignedTx(tx)
+	if err != nil {
+		return "", err
+	}
+	return SendTransactionB64To(ctx, client, target, txB64)
+}
+
+// SendTransactionB64To submits a signed base64-encoded transaction via the specified send target.
+func SendTransactionB64To(
+	ctx context.Context,
+	client *http.Client,
+	target SendTarget,
+	txB64 string,
+) (string, error) {
+	return sendTransactionB64(ctx, client, target.Endpoint(), target.TargetLabel(), txB64, target.IncludePreflightCommitment(), target.extraHeaders())
+}
+
+func (t SendTarget) extraHeaders() map[string]string {
+	if t.kind == sendTargetKindAstralane && t.apiKey != "" {
+		return map[string]string{"x-api-key": t.apiKey}
+	}
+	return nil
+}
 
 // TxSubmitErrorKind classifies transaction sign/submit failures.
 type TxSubmitErrorKind string
@@ -116,52 +232,6 @@ func EncodeSignedTx(tx *solana.Transaction) (string, error) {
 	return base64.StdEncoding.EncodeToString(raw), nil
 }
 
-// SendViaHeliusSender submits a signed tx to Helius Sender.
-func SendViaHeliusSender(
-	ctx context.Context,
-	client *http.Client,
-	tx *solana.Transaction,
-) (string, error) {
-	txB64, err := EncodeSignedTx(tx)
-	if err != nil {
-		return "", err
-	}
-	return SendViaHeliusSenderB64(ctx, client, txB64)
-}
-
-// SendViaRPC submits a signed tx to a standard Solana RPC endpoint.
-func SendViaRPC(
-	ctx context.Context,
-	client *http.Client,
-	rpcURL string,
-	tx *solana.Transaction,
-) (string, error) {
-	txB64, err := EncodeSignedTx(tx)
-	if err != nil {
-		return "", err
-	}
-	return SendViaRPCB64(ctx, client, rpcURL, txB64)
-}
-
-// SendViaHeliusSenderB64 submits a signed base64 tx to Helius Sender.
-func SendViaHeliusSenderB64(
-	ctx context.Context,
-	client *http.Client,
-	txB64 string,
-) (string, error) {
-	return sendTransactionB64(ctx, client, HeliusSenderFastURL, "helius sender", txB64, false)
-}
-
-// SendViaRPCB64 submits a signed base64 tx to Solana RPC.
-func SendViaRPCB64(
-	ctx context.Context,
-	client *http.Client,
-	rpcURL string,
-	txB64 string,
-) (string, error) {
-	return sendTransactionB64(ctx, client, rpcURL, "rpc", txB64, true)
-}
-
 func sendTransactionB64(
 	ctx context.Context,
 	client *http.Client,
@@ -169,6 +239,7 @@ func sendTransactionB64(
 	target string,
 	txB64 string,
 	includePreflightCommitment bool,
+	extraHeaders map[string]string,
 ) (string, error) {
 	if client == nil {
 		client = newNoProxyHTTPClient(0)
@@ -200,6 +271,9 @@ func sendTransactionB64(
 		return "", &TxSubmitError{Kind: TxSubmitErrorRequestSend, Target: target, Err: err}
 	}
 	httpRequest.Header.Set("content-type", "application/json")
+	for k, v := range extraHeaders {
+		httpRequest.Header.Set(k, v)
+	}
 
 	response, err := client.Do(httpRequest)
 	if err != nil {

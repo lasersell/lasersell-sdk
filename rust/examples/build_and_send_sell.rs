@@ -13,7 +13,7 @@
 use std::error::Error;
 
 use lasersell_sdk::exit_api::{BuildSellTxRequest, ExitApiClient, SellOutput};
-use lasersell_sdk::tx::{send_via_helius_sender, send_via_rpc, sign_unsigned_tx};
+use lasersell_sdk::tx::{send_transaction, sign_unsigned_tx, SendTarget};
 use secrecy::SecretString;
 use solana_sdk::signature::read_keypair_file;
 
@@ -42,22 +42,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
         slippage_bps,
         mode: None,
         output: Some(SellOutput::Sol),
-        referral_id: None,
+
         market_context: None,
+        send_mode: None,
+        tip_lamports: None,
     };
 
     let unsigned_tx_b64 = exit_api.build_sell_tx_b64(&request).await?;
     let signed_tx = sign_unsigned_tx(&unsigned_tx_b64, &keypair)?;
 
-    let signature = match send_target.as_str() {
-        "helius_sender" => send_via_helius_sender(&http, &signed_tx).await?,
-        "rpc" => send_via_rpc(&http, &rpc_url, &signed_tx).await?,
+    let target = match send_target.as_str() {
+        "helius_sender" => SendTarget::HeliusSender,
+        "rpc" => SendTarget::Rpc { url: rpc_url },
         other => {
             return Err(
                 format!("send_target must be `rpc` or `helius_sender` (got `{other}`)").into(),
             )
         }
     };
+    let signature = send_transaction(&http, &target, &signed_tx).await?;
 
     println!("signature={signature}");
     Ok(())

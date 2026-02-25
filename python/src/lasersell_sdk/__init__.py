@@ -1,4 +1,4 @@
-"""Python SDK for LaserSell stream and Exit API."""
+"""Python SDK for the LaserSell API."""
 
 from . import exit_api as _exit_api
 from . import retry as _retry

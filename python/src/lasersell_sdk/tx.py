@@ -11,9 +11,97 @@ import socket
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
+from dataclasses import dataclass
+
 ERROR_BODY_SNIPPET_LEN = 220
 
 HELIUS_SENDER_FAST_URL = "https://sender.helius-rpc.com/fast"
+
+ASTRALANE_DEFAULT_REGION = "fr"
+
+
+def astralane_iris_url(region: str) -> str:
+    """Build the Astralane Iris endpoint URL for a given region.
+
+    Known regions: ``fr`` (Frankfurt, recommended), ``fr2``, ``la`` (San Francisco),
+    ``jp`` (Tokyo), ``ny`` (New York), ``ams`` (Amsterdam, recommended), ``ams2``,
+    ``lim`` (Limburg), ``sg`` (Singapore), ``lit`` (Lithuania).
+    """
+    return f"https://{region}.gateway.astralane.io/iris"
+
+
+@dataclass(frozen=True, slots=True)
+class SendTargetRpc:
+    """Standard Solana JSON-RPC endpoint."""
+
+    url: str
+
+
+@dataclass(frozen=True, slots=True)
+class SendTargetHeliusSender:
+    """Helius Sender /fast endpoint."""
+
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class SendTargetAstralane:
+    """Astralane Iris V1 gateway authenticated via ``x-api-key`` header."""
+
+    api_key: str
+    region: str | None = None
+
+
+SendTarget = SendTargetRpc | SendTargetHeliusSender | SendTargetAstralane
+
+
+def _send_target_endpoint(target: SendTarget) -> str:
+    if isinstance(target, SendTargetRpc):
+        return target.url
+    if isinstance(target, SendTargetHeliusSender):
+        return HELIUS_SENDER_FAST_URL
+    if isinstance(target, SendTargetAstralane):
+        return astralane_iris_url(target.region or ASTRALANE_DEFAULT_REGION)
+    raise TypeError(f"unknown send target: {target!r}")
+
+
+def _send_target_extra_headers(target: SendTarget) -> dict[str, str]:
+    if isinstance(target, SendTargetAstralane):
+        return {"x-api-key": target.api_key}
+    return {}
+
+
+def _send_target_label(target: SendTarget) -> str:
+    if isinstance(target, SendTargetRpc):
+        return "rpc"
+    if isinstance(target, SendTargetHeliusSender):
+        return "helius sender"
+    if isinstance(target, SendTargetAstralane):
+        return "astralane"
+    return "unknown"
+
+
+def _send_target_include_preflight(target: SendTarget) -> bool:
+    return isinstance(target, SendTargetRpc)
+
+
+async def send_transaction(target: SendTarget, tx: object) -> str:
+    """Submits a signed transaction via the specified send target."""
+
+    tx_b64 = encode_signed_tx(tx)
+    return await send_transaction_b64_to(target, tx_b64)
+
+
+async def send_transaction_b64_to(target: SendTarget, tx_b64: str) -> str:
+    """Submits a signed base64-encoded transaction via the specified send target."""
+
+    return await _send_transaction_b64(
+        endpoint=_send_target_endpoint(target),
+        target=_send_target_label(target),
+        tx_b64=tx_b64,
+        include_preflight_commitment=_send_target_include_preflight(target),
+        extra_headers=_send_target_extra_headers(target),
+    )
 
 
 class TxSubmitError(Exception):
@@ -163,47 +251,12 @@ def encode_signed_tx(tx: object) -> str:
         raise TxSubmitError.serialize_tx(_coerce_exception(error)) from error
 
 
-async def send_via_helius_sender(tx: object) -> str:
-    """Submits a signed transaction to Helius Sender and returns its signature."""
-
-    tx_b64 = encode_signed_tx(tx)
-    return await send_via_helius_sender_b64(tx_b64)
-
-
-async def send_via_rpc(rpc_url: str, tx: object) -> str:
-    """Submits a signed transaction to a standard Solana RPC endpoint."""
-
-    tx_b64 = encode_signed_tx(tx)
-    return await send_via_rpc_b64(rpc_url, tx_b64)
-
-
-async def send_via_helius_sender_b64(tx_b64: str) -> str:
-    """Submits a base64-encoded signed transaction via Helius Sender."""
-
-    return await _send_transaction_b64(
-        endpoint=HELIUS_SENDER_FAST_URL,
-        target="helius sender",
-        tx_b64=tx_b64,
-        include_preflight_commitment=False,
-    )
-
-
-async def send_via_rpc_b64(rpc_url: str, tx_b64: str) -> str:
-    """Submits a base64-encoded signed transaction via standard RPC."""
-
-    return await _send_transaction_b64(
-        endpoint=rpc_url,
-        target="rpc",
-        tx_b64=tx_b64,
-        include_preflight_commitment=True,
-    )
-
-
 async def _send_transaction_b64(
     endpoint: str,
     target: str,
     tx_b64: str,
     include_preflight_commitment: bool,
+    extra_headers: dict[str, str] | None = None,
 ) -> str:
     config: dict[str, object] = {
         "encoding": "base64",
@@ -221,6 +274,8 @@ async def _send_transaction_b64(
     }
 
     headers = {"content-type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
 
     try:
         status, body = await asyncio.to_thread(
@@ -341,12 +396,16 @@ def _coerce_exception(error: BaseException) -> Exception:
 
 
 __all__ = [
+    "ASTRALANE_DEFAULT_REGION",
     "HELIUS_SENDER_FAST_URL",
+    "astralane_iris_url",
+    "SendTarget",
+    "SendTargetAstralane",
+    "SendTargetHeliusSender",
+    "SendTargetRpc",
     "TxSubmitError",
     "encode_signed_tx",
-    "send_via_helius_sender",
-    "send_via_helius_sender_b64",
-    "send_via_rpc",
-    "send_via_rpc_b64",
+    "send_transaction",
+    "send_transaction_b64_to",
     "sign_unsigned_tx",
 ]
