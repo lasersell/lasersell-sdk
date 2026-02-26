@@ -151,7 +151,7 @@ impl StreamConfigure {
     ) -> Self {
         Self {
             wallet_pubkeys: vec![wallet_pubkey.into()],
-            strategy: strategy_config_from_optional(target_profit_pct, stop_loss_pct),
+            strategy: strategy_config_from_optional(target_profit_pct, stop_loss_pct, None, None),
             deadline_timeout_sec: deadline_timeout_sec.unwrap_or(0),
         }
     }
@@ -163,10 +163,14 @@ impl StreamConfigure {
 pub fn strategy_config_from_optional(
     target_profit_pct: Option<f64>,
     stop_loss_pct: Option<f64>,
+    trailing_stop_pct: Option<f64>,
+    sell_on_graduation: Option<bool>,
 ) -> StrategyConfigMsg {
     StrategyConfigMsg {
         target_profit_pct: target_profit_pct.unwrap_or(0.0),
         stop_loss_pct: stop_loss_pct.unwrap_or(0.0),
+        trailing_stop_pct: trailing_stop_pct.unwrap_or(0.0),
+        sell_on_graduation: sell_on_graduation.unwrap_or(false),
     }
 }
 
@@ -360,6 +364,11 @@ impl StreamSender {
         self.send(ClientMessage::UpdateStrategy { strategy })
     }
 
+    /// Replaces the set of monitored wallets for the active session.
+    pub fn update_wallets(&self, wallet_pubkeys: Vec<String>) -> Result<(), StreamClientError> {
+        self.send(ClientMessage::UpdateWallets { wallet_pubkeys })
+    }
+
     /// Requests a position close by token account or position id.
     pub fn close_position<S>(&self, selector: S) -> Result<(), StreamClientError>
     where
@@ -462,14 +471,18 @@ pub(crate) fn validate_strategy_thresholds(
 ) -> Result<(), StreamClientError> {
     validate_strategy_value(strategy.target_profit_pct, "strategy.target_profit_pct")?;
     validate_strategy_value(strategy.stop_loss_pct, "strategy.stop_loss_pct")?;
+    validate_strategy_value(strategy.trailing_stop_pct, "strategy.trailing_stop_pct")?;
 
-    if strategy.target_profit_pct > 0.0 || strategy.stop_loss_pct > 0.0 || deadline_timeout_sec > 0
+    if strategy.target_profit_pct > 0.0
+        || strategy.stop_loss_pct > 0.0
+        || strategy.trailing_stop_pct > 0.0
+        || deadline_timeout_sec > 0
     {
         return Ok(());
     }
 
     Err(StreamClientError::Protocol(
-        "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0"
+        "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, strategy.trailing_stop_pct, or deadline_timeout_sec must be > 0"
             .to_string(),
     ))
 }
@@ -811,38 +824,38 @@ mod tests {
 
     #[test]
     fn optional_strategy_builder_defaults_unset_values_to_zero() {
-        let strategy = strategy_config_from_optional(None, Some(1.5));
+        let strategy = strategy_config_from_optional(None, Some(1.5), None, None);
         assert_eq!(strategy.target_profit_pct, 0.0);
         assert_eq!(strategy.stop_loss_pct, 1.5);
     }
 
     #[test]
     fn validation_accepts_target_only() {
-        let strategy = strategy_config_from_optional(Some(2.0), None);
+        let strategy = strategy_config_from_optional(Some(2.0), None, None, None);
         assert!(validate_strategy_thresholds(&strategy, 0).is_ok());
     }
 
     #[test]
     fn validation_accepts_stop_only() {
-        let strategy = strategy_config_from_optional(None, Some(1.0));
+        let strategy = strategy_config_from_optional(None, Some(1.0), None, None);
         assert!(validate_strategy_thresholds(&strategy, 0).is_ok());
     }
 
     #[test]
     fn validation_accepts_deadline_only() {
-        let strategy = strategy_config_from_optional(None, None);
+        let strategy = strategy_config_from_optional(None, None, None, None);
         assert!(validate_strategy_thresholds(&strategy, 45).is_ok());
     }
 
     #[test]
     fn validation_rejects_when_all_thresholds_disabled() {
-        let strategy = strategy_config_from_optional(None, None);
+        let strategy = strategy_config_from_optional(None, None, None, None);
         assert!(validate_strategy_thresholds(&strategy, 0).is_err());
     }
 
     #[test]
     fn validation_rejects_negative_values() {
-        let strategy = strategy_config_from_optional(Some(-1.0), None);
+        let strategy = strategy_config_from_optional(Some(-1.0), None, None, None);
         assert!(validate_strategy_thresholds(&strategy, 0).is_err());
     }
 }

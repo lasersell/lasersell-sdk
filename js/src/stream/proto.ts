@@ -51,6 +51,8 @@ export interface MarketContextMsg {
 export interface StrategyConfigMsg {
   target_profit_pct: number;
   stop_loss_pct: number;
+  trailing_stop_pct?: number;
+  sell_on_graduation?: boolean;
 }
 
 export interface LimitsMsg {
@@ -91,12 +93,18 @@ export interface RequestExitSignalClientMessage {
   slippage_bps?: number;
 }
 
+export interface UpdateWalletsClientMessage {
+  type: "update_wallets";
+  wallet_pubkeys: string[];
+}
+
 export type ClientMessage =
   | PingClientMessage
   | ConfigureClientMessage
   | UpdateStrategyClientMessage
   | ClosePositionClientMessage
-  | RequestExitSignalClientMessage;
+  | RequestExitSignalClientMessage
+  | UpdateWalletsClientMessage;
 
 export interface HelloOkServerMessage {
   type: "hello_ok";
@@ -244,6 +252,13 @@ export function clientMessageFromUnknown(value: unknown): ClientMessage {
           obj.slippage_bps,
           "request_exit_signal.slippage_bps",
         ),
+      };
+    }
+    case "update_wallets": {
+      const wallet_pubkeys = parseWalletPubkeys(obj);
+      return {
+        type: "update_wallets",
+        wallet_pubkeys,
       };
     }
     default:
@@ -430,13 +445,31 @@ function parseWalletPubkeys(obj: Record<string, unknown>): string[] {
 function parseStrategyConfig(value: unknown): StrategyConfigMsg {
   const obj = asRecord(value, "strategy");
 
-  return {
+  const result: StrategyConfigMsg = {
     target_profit_pct: asNumber(
       obj.target_profit_pct,
       "strategy.target_profit_pct",
     ),
     stop_loss_pct: asNumber(obj.stop_loss_pct, "strategy.stop_loss_pct"),
   };
+
+  const trailing = optionalNumber(
+    obj.trailing_stop_pct,
+    "strategy.trailing_stop_pct",
+  );
+  if (trailing !== undefined) {
+    result.trailing_stop_pct = trailing;
+  }
+
+  const sellOnGraduation = optionalBoolean(
+    obj.sell_on_graduation,
+    "strategy.sell_on_graduation",
+  );
+  if (sellOnGraduation !== undefined) {
+    result.sell_on_graduation = sellOnGraduation;
+  }
+
+  return result;
 }
 
 function parseLimits(value: unknown): LimitsMsg {
@@ -510,6 +543,16 @@ function parseMarketType(value: unknown, path: string): MarketTypeMsg {
     default:
       throw new Error(`invalid market type at ${path}: ${str}`);
   }
+}
+
+function optionalBoolean(value: unknown, path: string): boolean | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`${path} must be a boolean`);
+  }
+  return value;
 }
 
 function optionalString(value: unknown, path: string): string | undefined {

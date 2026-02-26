@@ -70,7 +70,19 @@ type MarketContextMsg struct {
 type StrategyConfigMsg struct {
 	TargetProfitPct float64 `json:"target_profit_pct"`
 	StopLossPct     float64 `json:"stop_loss_pct"`
+	TrailingStopPct float64 `json:"trailing_stop_pct,omitempty"`
+	SellOnGraduation bool    `json:"sell_on_graduation,omitempty"`
 }
+
+// Exit reason constants for position close/exit messages.
+const (
+	ExitReasonTargetProfit = "target_profit"
+	ExitReasonStopLoss     = "stop_loss"
+	ExitReasonTrailingStop = "trailing_stop"
+	ExitReasonSellNow      = "sell_now"
+	ExitReasonGraduation    = "graduation"
+	ExitReasonTimeout      = "timeout"
+)
 
 // LimitsMsg captures server-advertised session limits.
 type LimitsMsg struct {
@@ -91,6 +103,7 @@ const (
 	ClientMessageTypeUpdateStrategy    ClientMessageType = "update_strategy"
 	ClientMessageTypeClosePosition     ClientMessageType = "close_position"
 	ClientMessageTypeRequestExitSignal ClientMessageType = "request_exit_signal"
+	ClientMessageTypeUpdateWallets     ClientMessageType = "update_wallets"
 )
 
 // ClientMessage is a tagged client command payload.
@@ -143,6 +156,15 @@ type RequestExitSignalClientMessage struct {
 
 func (RequestExitSignalClientMessage) ClientMessageType() ClientMessageType {
 	return ClientMessageTypeRequestExitSignal
+}
+
+// UpdateWalletsClientMessage replaces the session wallet set.
+type UpdateWalletsClientMessage struct {
+	WalletPubkeys []string `json:"wallet_pubkeys"`
+}
+
+func (UpdateWalletsClientMessage) ClientMessageType() ClientMessageType {
+	return ClientMessageTypeUpdateWallets
 }
 
 // ServerMessageType is the stream protocol discriminator for server messages.
@@ -306,6 +328,12 @@ func ClientMessageFromJSON(data []byte) (ClientMessage, error) {
 			return nil, fmt.Errorf("decode request_exit_signal client message: %w", err)
 		}
 		return msg, nil
+	case string(ClientMessageTypeUpdateWallets):
+		var msg UpdateWalletsClientMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("decode update_wallets client message: %w", err)
+		}
+		return msg, nil
 	default:
 		return nil, fmt.Errorf("unsupported client message type: %s", envelope.Type)
 	}
@@ -404,6 +432,16 @@ func ClientMessageToJSON(message ClientMessage) ([]byte, error) {
 			RequestExitSignalClientMessage
 		}{Type: string(ClientMessageTypeRequestExitSignal), RequestExitSignalClientMessage: msg})
 	case *RequestExitSignalClientMessage:
+		if msg == nil {
+			return nil, fmt.Errorf("client message cannot be nil")
+		}
+		return ClientMessageToJSON(*msg)
+	case UpdateWalletsClientMessage:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			UpdateWalletsClientMessage
+		}{Type: string(ClientMessageTypeUpdateWallets), UpdateWalletsClientMessage: msg})
+	case *UpdateWalletsClientMessage:
 		if msg == nil {
 			return nil, fmt.Errorf("client message cannot be nil")
 		}

@@ -13,7 +13,7 @@ Rust SDK for the LaserSell API.
 
 ```toml
 [dependencies]
-lasersell-sdk = "0.1"
+lasersell-sdk = "0.2"
 ```
 
 ## Build a sell transaction
@@ -56,7 +56,7 @@ let http = reqwest::Client::builder().no_proxy().build()?;
 let client = StreamClient::new(SecretString::new("REPLACE_WITH_API_KEY".to_string()));
 let configure = StreamConfigure {
     wallet_pubkeys: vec!["REPLACE_WITH_WALLET_PUBKEY".to_string()],
-    strategy: strategy_config_from_optional(None, None),
+    strategy: strategy_config_from_optional(None, None, None, None),
     deadline_timeout_sec: 45,
 };
 
@@ -74,6 +74,49 @@ while let Some(event) = session.recv().await {
     }
 }
 ```
+
+## Strategy options
+
+The `strategy_config_from_optional` helper builds a `StrategyConfigMsg` from optional fields. At least one exit condition must be enabled: take profit, stop loss, trailing stop, or deadline timeout.
+
+```rust
+use lasersell_sdk::stream::client::strategy_config_from_optional;
+
+// Take profit at 20%, stop loss at 10%, trailing stop at 5%
+let strategy = strategy_config_from_optional(Some(20.0), Some(10.0), Some(5.0), None);
+```
+
+**Trailing stop** locks in profits by tracking a high-water mark. When the position's profit drops by the configured percentage of entry cost from its peak, an exit is triggered. For example, with `trailing_stop_pct = 5.0` and an entry of 100 SOL: if profit peaks at 30 SOL, an exit triggers when profit falls below 25 SOL.
+
+### Sell on graduation
+
+Automatically exit a position when its token graduates from a bonding curve to a full DEX (e.g. Pump.fun to PumpSwap). Enable by setting `sell_on_graduation` on the strategy config:
+
+```rust
+use lasersell_sdk::stream::proto::StrategyConfigMsg;
+
+let strategy = StrategyConfigMsg {
+    target_profit_pct: 20.0,
+    stop_loss_pct: 10.0,
+    trailing_stop_pct: 0.0,
+    sell_on_graduation: true,
+};
+```
+
+When a graduation event is detected the server sells the position on the new market and reports `"graduation"` as the exit reason.
+
+## Update wallets mid-session
+
+Add or remove wallets without reconnecting:
+
+```rust
+session.sender().update_wallets(vec![
+    "WALLET_1_PUBKEY".to_string(),
+    "WALLET_2_PUBKEY".to_string(),
+]).await?;
+```
+
+The server diffs the new list against the current set and registers/unregisters accordingly.
 
 ## RPC endpoint
 

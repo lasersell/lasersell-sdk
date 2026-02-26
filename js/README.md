@@ -94,7 +94,46 @@ while (true) {
 
 `deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
 Use `session.updateStrategy(...)` when changing strategy so local deadline timers stay in sync (pass a second `deadlineTimeoutSec` argument to change local deadline timing).
-Use `singleWalletStreamConfigureOptional(...)` / `strategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
+Use `singleWalletStreamConfigureOptional(...)` / `strategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, trailing stop, or timeout must be enabled.
+
+### Trailing stop
+
+Lock in profits by tracking a high-water mark. When the position's profit drops by the configured percentage of entry cost from its peak, an exit is triggered.
+
+```ts
+import { strategyConfigFromOptional } from "@lasersell/lasersell-sdk";
+
+// 20% take profit, 10% stop loss, 5% trailing stop
+const strategy = strategyConfigFromOptional({ takeProfitPct: 20, stopLossPct: 10, trailingStopPct: 5 });
+```
+
+Example: with `trailingStopPct: 5` and an entry of 100 SOL, if profit peaks at 30 SOL, an exit triggers when profit falls below 25 SOL.
+
+### Sell on graduation
+
+Automatically exit a position when its token graduates from a bonding curve to a full DEX (e.g. Pump.fun to PumpSwap). Enable by setting `sellOnGraduation` in the optional strategy config:
+
+```ts
+import { strategyConfigFromOptional } from "@lasersell/lasersell-sdk";
+
+const strategy = strategyConfigFromOptional({
+  takeProfitPct: 20,
+  stopLossPct: 10,
+  sellOnGraduation: true,
+});
+```
+
+When a graduation event is detected the server sells the position on the new market and reports `"graduation"` as the exit reason.
+
+### Update wallets mid-session
+
+Add or remove wallets without reconnecting:
+
+```ts
+await session.sender().updateWallets(["WALLET_1_PUBKEY", "WALLET_2_PUBKEY"]);
+```
+
+The server diffs the new list against the current set and registers/unregisters accordingly.
 
 ## RPC endpoint
 

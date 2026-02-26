@@ -38,17 +38,25 @@ class StreamConfigure:
 class OptionalStrategyConfig(TypedDict, total=False):
     target_profit_pct: float
     stop_loss_pct: float
+    trailing_stop_pct: float
 
 
 def strategy_config_from_optional(
     *,
     target_profit_pct: float | None = None,
     stop_loss_pct: float | None = None,
+    trailing_stop_pct: float | None = None,
+    sell_on_graduation: bool = False,
 ) -> StrategyConfigMsg:
-    return {
+    result: StrategyConfigMsg = {
         "target_profit_pct": float(target_profit_pct) if target_profit_pct is not None else 0.0,
         "stop_loss_pct": float(stop_loss_pct) if stop_loss_pct is not None else 0.0,
     }
+    if trailing_stop_pct is not None and trailing_stop_pct > 0:
+        result["trailing_stop_pct"] = float(trailing_stop_pct)
+    if sell_on_graduation:
+        result["sell_on_graduation"] = True
+    return result
 
 
 def single_wallet_stream_configure(
@@ -70,6 +78,7 @@ def single_wallet_stream_configure_optional(
     *,
     target_profit_pct: float | None = None,
     stop_loss_pct: float | None = None,
+    trailing_stop_pct: float | None = None,
     deadline_timeout_sec: int | None = None,
 ) -> StreamConfigure:
     return StreamConfigure(
@@ -77,6 +86,7 @@ def single_wallet_stream_configure_optional(
         strategy=strategy_config_from_optional(
             target_profit_pct=target_profit_pct,
             stop_loss_pct=stop_loss_pct,
+            trailing_stop_pct=trailing_stop_pct,
         ),
         deadline_timeout_sec=0 if deadline_timeout_sec is None else int(deadline_timeout_sec),
     )
@@ -228,6 +238,9 @@ class StreamSender:
         slippage_bps: int | None = None,
     ) -> None:
         self.request_exit_signal(position_id, slippage_bps)
+
+    def update_wallets(self, wallet_pubkeys: list[str]) -> None:
+        self.send({"type": "update_wallets", "wallet_pubkeys": wallet_pubkeys})
 
 
 PositionSelector = dict[str, int | str]
@@ -586,15 +599,18 @@ def _as_exception(value: BaseException | str) -> BaseException | None:
 def _validate_strategy_and_deadline(strategy: StrategyConfigMsg, deadline_timeout_sec: int) -> None:
     _validate_strategy_value(strategy["target_profit_pct"], "strategy.target_profit_pct")
     _validate_strategy_value(strategy["stop_loss_pct"], "strategy.stop_loss_pct")
+    trailing = strategy.get("trailing_stop_pct", 0.0)
+    if trailing:
+        _validate_strategy_value(trailing, "strategy.trailing_stop_pct")
 
     deadline = int(deadline_timeout_sec)
     if deadline < 0:
         raise StreamClientError.protocol("deadline_timeout_sec must be >= 0")
-    if strategy["target_profit_pct"] > 0 or strategy["stop_loss_pct"] > 0 or deadline > 0:
+    if strategy["target_profit_pct"] > 0 or strategy["stop_loss_pct"] > 0 or trailing > 0 or deadline > 0:
         return
 
     raise StreamClientError.protocol(
-        "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0"
+        "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, strategy.trailing_stop_pct, or deadline_timeout_sec must be > 0"
     )
 
 

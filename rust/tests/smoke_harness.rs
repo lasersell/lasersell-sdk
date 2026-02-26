@@ -54,6 +54,8 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
     let expected_strategy = StrategyConfigMsg {
         target_profit_pct: 5.0,
         stop_loss_pct: 1.5,
+        trailing_stop_pct: 0.0,
+        sell_on_graduation: false,
     };
     let (observed_tx, observed_rx) = oneshot::channel();
     let ws_state = WsState {

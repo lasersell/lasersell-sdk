@@ -60,9 +60,11 @@ class MarketContextMsg(TypedDict, total=False):
     raydium_cpmm: NotRequired[RaydiumCpmmContextMsg]
 
 
-class StrategyConfigMsg(TypedDict):
-    target_profit_pct: float
-    stop_loss_pct: float
+class StrategyConfigMsg(TypedDict, total=False):
+    target_profit_pct: Required[float]
+    stop_loss_pct: Required[float]
+    trailing_stop_pct: NotRequired[float]
+    sell_on_graduation: NotRequired[bool]
 
 
 class LimitsMsg(TypedDict):
@@ -103,12 +105,18 @@ class RequestExitSignalClientMessage(TypedDict, total=False):
     slippage_bps: NotRequired[int]
 
 
+class UpdateWalletsClientMessage(TypedDict):
+    type: Literal["update_wallets"]
+    wallet_pubkeys: list[str]
+
+
 ClientMessage = (
     PingClientMessage
     | ConfigureClientMessage
     | UpdateStrategyClientMessage
     | ClosePositionClientMessage
     | RequestExitSignalClientMessage
+    | UpdateWalletsClientMessage
 )
 
 
@@ -271,6 +279,12 @@ def client_message_from_obj(value: object) -> ClientMessage:
             "request_exit_signal.slippage_bps",
         )
         return message
+
+    if message_type == "update_wallets":
+        return {
+            "type": "update_wallets",
+            "wallet_pubkeys": _parse_wallet_pubkeys(obj),
+        }
 
     raise ValueError(f"unsupported client message type: {message_type}")
 
@@ -495,10 +509,22 @@ def _parse_wallet_pubkeys(obj: dict[str, object]) -> list[str]:
 def _parse_strategy_config(value: object) -> StrategyConfigMsg:
     obj = _as_record(value, "strategy")
 
-    return {
+    result: StrategyConfigMsg = {
         "target_profit_pct": _as_float(obj.get("target_profit_pct"), "strategy.target_profit_pct"),
         "stop_loss_pct": _as_float(obj.get("stop_loss_pct"), "strategy.stop_loss_pct"),
     }
+
+    trailing_raw = obj.get("trailing_stop_pct")
+    if trailing_raw is not None:
+        result["trailing_stop_pct"] = _as_float(trailing_raw, "strategy.trailing_stop_pct")
+
+    sell_on_graduation_raw = obj.get("sell_on_graduation")
+    if sell_on_graduation_raw is not None:
+        if not isinstance(sell_on_graduation_raw, bool):
+            raise ValueError("strategy.sell_on_graduation must be a boolean")
+        result["sell_on_graduation"] = sell_on_graduation_raw
+
+    return result
 
 
 def _parse_limits(value: object) -> LimitsMsg:
@@ -703,6 +729,7 @@ __all__ = [
     "ServerMessage",
     "StrategyConfigMsg",
     "UpdateStrategyClientMessage",
+    "UpdateWalletsClientMessage",
     "client_message_from_obj",
     "client_message_from_text",
     "client_message_to_text",

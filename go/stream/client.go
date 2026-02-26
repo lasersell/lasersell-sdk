@@ -90,10 +90,13 @@ func validateStrategyAndDeadline(strategy StrategyConfigMsg, deadlineTimeoutSec 
 	if err := validateStrategyValue(strategy.StopLossPct, "strategy.stop_loss_pct"); err != nil {
 		return err
 	}
-	if strategy.TargetProfitPct > 0 || strategy.StopLossPct > 0 || deadlineTimeoutSec > 0 {
+	if err := validateStrategyValue(strategy.TrailingStopPct, "strategy.trailing_stop_pct"); err != nil {
+		return err
+	}
+	if strategy.TargetProfitPct > 0 || strategy.StopLossPct > 0 || strategy.TrailingStopPct > 0 || deadlineTimeoutSec > 0 {
 		return nil
 	}
-	return protocolError("at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0")
+	return protocolError("at least one of strategy.target_profit_pct, strategy.stop_loss_pct, strategy.trailing_stop_pct, or deadline_timeout_sec must be > 0")
 }
 
 func validateStrategyValue(value float64, field string) error {
@@ -125,10 +128,12 @@ type StreamConfigure struct {
 	DeadlineTimeoutSec uint64            `json:"deadline_timeout_sec,omitempty"`
 }
 
-// OptionalStrategyConfig holds optional TP/SL settings where nil means disabled.
+// OptionalStrategyConfig holds optional TP/SL/trailing settings where nil means disabled.
 type OptionalStrategyConfig struct {
 	TargetProfitPct *float64
 	StopLossPct     *float64
+	TrailingStopPct *float64
+	SellOnGraduation *bool
 }
 
 // SingleWalletStreamConfigure creates configuration for a single wallet.
@@ -149,6 +154,12 @@ func StrategyConfigFromOptional(optional OptionalStrategyConfig) StrategyConfigM
 	}
 	if optional.StopLossPct != nil {
 		strategy.StopLossPct = *optional.StopLossPct
+	}
+	if optional.TrailingStopPct != nil {
+		strategy.TrailingStopPct = *optional.TrailingStopPct
+	}
+	if optional.SellOnGraduation != nil {
+		strategy.SellOnGraduation = *optional.SellOnGraduation
 	}
 	return strategy
 }
@@ -321,6 +332,11 @@ func (s *StreamSender) RequestExitSignal(selector PositionSelector, slippageBps 
 // RequestExitSignalByID requests exit signal for position id.
 func (s *StreamSender) RequestExitSignalByID(positionID uint64, slippageBps *uint16) error {
 	return s.RequestExitSignal(PositionIDSelector(positionID), slippageBps)
+}
+
+// UpdateWallets replaces the session wallet set.
+func (s *StreamSender) UpdateWallets(walletPubkeys []string) error {
+	return s.Send(UpdateWalletsClientMessage{WalletPubkeys: walletPubkeys})
 }
 
 type sessionOutcome int

@@ -89,7 +89,37 @@ target := lasersell.SendTargetRpc("https://your-private-rpc.example.com")
 - Stream client includes reconnect handling and sender/session utilities.
 - `StreamConfigure.DeadlineTimeoutSec` is enforced client-side by `stream.StreamSession` timers and is not part of wire strategy.
 - Use `session.UpdateStrategy(...)` (instead of sender-only updates) when changing strategy so local deadline timers stay synchronized. Pass optional `deadlineTimeoutSec` if you want to change local deadline timing.
-- Use `stream.SingleWalletStreamConfigureOptional(...)` / `stream.StrategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
+- Use `stream.SingleWalletStreamConfigureOptional(...)` / `stream.StrategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, trailing stop, or timeout must be enabled.
+- **Trailing stop**: locks in profits by tracking a high-water mark — when profit drops by the configured percentage of entry cost from its peak, an exit is triggered. Set `TrailingStopPct` in `OptionalStrategyConfig` (e.g. `5.0` = exit if profit drops 5% of entry from peak).
+- Use `session.Sender().UpdateWallets(...)` to add or remove wallets mid-session without reconnecting.
+
+### Trailing stop example
+
+```go
+trailing := 5.0
+cfg := stream.StrategyConfigFromOptional(stream.OptionalStrategyConfig{
+    TakeProfitPct:  lasersell.Ptr(20.0),
+    StopLossPct:    lasersell.Ptr(10.0),
+    TrailingStopPct: &trailing,
+})
+```
+
+With `TrailingStopPct = 5.0` and an entry of 100 SOL: if profit peaks at 30 SOL, an exit triggers when profit falls below 25 SOL.
+
+### Sell on graduation
+
+Automatically exit a position when its token graduates from a bonding curve to a full DEX (e.g. Pump.fun to PumpSwap). Enable by setting `SellOnGraduation` in the optional strategy config:
+
+```go
+cfg := stream.StrategyConfigFromOptional(stream.OptionalStrategyConfig{
+    TakeProfitPct:    lasersell.Ptr(20.0),
+    StopLossPct:      lasersell.Ptr(10.0),
+    SellOnGraduation: lasersell.Ptr(true),
+})
+```
+
+When a graduation event is detected the server sells the position on the new market and reports `"graduation"` as the exit reason (`stream.ExitReasonGraduation`).
+
 - Tx submit helpers support both Helius Sender and standard Solana RPC.
 
 ## Error types

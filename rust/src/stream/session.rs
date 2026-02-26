@@ -218,7 +218,7 @@ impl StreamSession {
         stop_loss_pct: Option<f64>,
         deadline_timeout_sec: Option<u64>,
     ) -> Result<(), StreamClientError> {
-        let strategy = strategy_config_from_optional(target_profit_pct, stop_loss_pct);
+        let strategy = strategy_config_from_optional(target_profit_pct, stop_loss_pct, None, None);
         match deadline_timeout_sec {
             Some(deadline) => self.update_strategy_with_deadline(strategy, deadline),
             None => self.update_strategy(strategy),
@@ -463,5 +463,7 @@ fn default_strategy() -> StrategyConfigMsg {
     StrategyConfigMsg {
         target_profit_pct: 0.0,
         stop_loss_pct: 0.0,
+        trailing_stop_pct: 0.0,
+        sell_on_graduation: false,
     }
 }

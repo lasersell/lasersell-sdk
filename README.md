@@ -27,7 +27,7 @@
 
 ## What is LaserSell?
 
-[LaserSell](https://lasersell.io) is professional Solana execution infrastructure for automated exit strategies. It builds optimized transactions across major Solana DEXs, submits them with adaptive slippage logic, and monitors positions in real time so you can set profit targets, stop losses, and timeouts that fire the millisecond conditions are met.
+[LaserSell](https://lasersell.io) is professional Solana execution infrastructure for automated exit strategies. It builds optimized transactions across major Solana DEXs, submits them with adaptive slippage logic, and monitors positions in real time so you can set profit targets, stop losses, trailing stops, and timeouts that fire the millisecond conditions are met.
 
 **Supported DEXs and platforms**: Pump.fun, Raydium (LaunchLab, CPMM), Meteora (DBC, DAMM v2), Bags.fm.
 
@@ -133,7 +133,7 @@ import {
 const client = new StreamClient("YOUR_API_KEY");
 const session = await StreamSession.connect(client, {
   wallet_pubkeys: ["YOUR_WALLET_PUBKEY"],
-  strategy: { target_profit_pct: 50, stop_loss_pct: 10 },
+  strategy: { target_profit_pct: 50, stop_loss_pct: 10, trailing_stop_pct: 5 },
   deadline_timeout_sec: 120,
 });
 
@@ -148,6 +148,30 @@ while (true) {
   }
 }
 ```
+
+## Strategy options
+
+The stream supports four exit conditions. At least one must be enabled:
+
+| Condition | Field | Description |
+|-----------|-------|-------------|
+| Take profit | `target_profit_pct` | Exit when profit reaches this % of entry cost |
+| Stop loss | `stop_loss_pct` | Exit when loss reaches this % of entry cost |
+| Trailing stop | `trailing_stop_pct` | Track a high-water mark; exit when profit drops this % of entry cost from its peak |
+| Deadline timeout | `deadline_timeout_sec` | Exit after this many seconds regardless of PnL |
+| Sell on graduation | `sell_on_graduation` | Automatically sell when a token graduates from a bonding curve to a full DEX (e.g. Pump.fun to PumpSwap) |
+
+**Trailing stop** is useful for locking in gains during a pump. For example, with `trailing_stop_pct: 5` and an entry of 100 SOL: if profit peaks at 30 SOL, an exit triggers when profit falls below 25 SOL. The trailing stop only fires after the position has been in profit (peak > 0), so it won't trigger on a position that has only gone down.
+
+### Update wallets mid-session
+
+Add or remove watched wallets without reconnecting:
+
+```ts
+await session.sender().updateWallets(["WALLET_1", "WALLET_2"]);
+```
+
+The server diffs the new list against the current set and registers/unregisters accordingly. Positions on removed wallets continue to be tracked until they close.
 
 ## RPC endpoint
 
@@ -218,11 +242,11 @@ Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy
 
 ### What is the Exit Intelligence stream?
 
-The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit and stop-loss thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders).
+The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit, stop-loss, and trailing-stop thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders).
 
 ### What's the difference between the API client and the stream?
 
-The API client (`ExitApiClient`) is for one-shot operations: build a single buy or sell transaction on demand. The stream (`StreamClient` + `StreamSession`) is for continuous monitoring: it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, or timeout conditions are met.
+The API client (`ExitApiClient`) is for one-shot operations: build a single buy or sell transaction on demand. The stream (`StreamClient` + `StreamSession`) is for continuous monitoring: it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, trailing-stop, or timeout conditions are met.
 
 ### How does the LaserSell CLI relate to the SDK?
 

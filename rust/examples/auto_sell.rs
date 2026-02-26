@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = StreamClient::new(SecretString::new(api_key));
     let configure = StreamConfigure {
         wallet_pubkeys,
-        strategy: strategy_config_from_optional(None, None),
+        strategy: strategy_config_from_optional(None, None, None, None),
         deadline_timeout_sec: 45,
     };
 

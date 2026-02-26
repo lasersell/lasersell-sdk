@@ -23,6 +23,8 @@ export interface StreamConfigure {
 export interface OptionalStrategyConfig {
   target_profit_pct?: number;
   stop_loss_pct?: number;
+  trailing_stop_pct?: number;
+  sellOnGraduation?: boolean;
 }
 
 export interface StreamLanesOptions {
@@ -51,10 +53,17 @@ export function singleWalletStreamConfigure(
 export function strategyConfigFromOptional(
   strategy: OptionalStrategyConfig = {},
 ): StrategyConfigMsg {
-  return {
+  const result: StrategyConfigMsg = {
     target_profit_pct: strategy.target_profit_pct ?? 0,
     stop_loss_pct: strategy.stop_loss_pct ?? 0,
   };
+  if (strategy.trailing_stop_pct !== undefined && strategy.trailing_stop_pct > 0) {
+    result.trailing_stop_pct = strategy.trailing_stop_pct;
+  }
+  if (strategy.sellOnGraduation !== undefined) {
+    result.sell_on_graduation = strategy.sellOnGraduation;
+  }
+  return result;
 }
 
 export function singleWalletStreamConfigureOptional(
@@ -206,6 +215,9 @@ export function validateStrategyAndDeadline(
 ): void {
   validateStrategyValue(strategy.target_profit_pct, "strategy.target_profit_pct");
   validateStrategyValue(strategy.stop_loss_pct, "strategy.stop_loss_pct");
+  if (strategy.trailing_stop_pct !== undefined) {
+    validateStrategyValue(strategy.trailing_stop_pct, "strategy.trailing_stop_pct");
+  }
 
   const deadline = Number(deadlineTimeoutSec);
   if (!Number.isFinite(deadline)) {
@@ -219,13 +231,14 @@ export function validateStrategyAndDeadline(
   if (
     strategy.target_profit_pct > 0 ||
     strategy.stop_loss_pct > 0 ||
+    (strategy.trailing_stop_pct ?? 0) > 0 ||
     deadline > 0
   ) {
     return;
   }
 
   throw StreamClientError.protocol(
-    "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, or deadline_timeout_sec must be > 0",
+    "at least one of strategy.target_profit_pct, strategy.stop_loss_pct, strategy.trailing_stop_pct, or deadline_timeout_sec must be > 0",
   );
 }
 
@@ -400,6 +413,13 @@ export class StreamSender {
 
   requestExitSignalById(positionId: number, slippage_bps?: number): void {
     this.requestExitSignal({ position_id: positionId }, slippage_bps);
+  }
+
+  updateWallets(walletPubkeys: string[]): void {
+    this.send({
+      type: "update_wallets",
+      wallet_pubkeys: walletPubkeys,
+    });
   }
 }
 

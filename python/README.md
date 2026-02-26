@@ -105,7 +105,50 @@ asyncio.run(main())
 
 `deadline_timeout_sec` is enforced client-side by `StreamSession` timers and is not sent as part of wire strategy.
 Use `session.update_strategy(...)` when changing strategy so local deadline timers stay in sync (pass `deadline_timeout_sec=` to change local deadline timing).
-Use `single_wallet_stream_configure_optional(...)` / `strategy_config_from_optional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
+Use `single_wallet_stream_configure_optional(...)` / `strategy_config_from_optional(...)` to omit TP/SL fields; at least one of take profit, stop loss, trailing stop, or timeout must be enabled.
+
+### Trailing stop
+
+Lock in profits by tracking a high-water mark. When the position's profit drops by the configured percentage of entry cost from its peak, an exit is triggered.
+
+```python
+from lasersell_sdk.stream.client import strategy_config_from_optional
+
+# 20% take profit, 10% stop loss, 5% trailing stop
+strategy = strategy_config_from_optional(
+    take_profit_pct=20.0,
+    stop_loss_pct=10.0,
+    trailing_stop_pct=5.0,
+)
+```
+
+Example: with `trailing_stop_pct=5.0` and an entry of 100 SOL, if profit peaks at 30 SOL, an exit triggers when profit falls below 25 SOL.
+
+### Sell on graduation
+
+Automatically exit a position when its token graduates from a bonding curve to a full DEX (e.g. Pump.fun to PumpSwap). Enable by setting `sell_on_graduation` in the optional strategy config:
+
+```python
+from lasersell_sdk.stream.client import strategy_config_from_optional
+
+strategy = strategy_config_from_optional(
+    take_profit_pct=20.0,
+    stop_loss_pct=10.0,
+    sell_on_graduation=True,
+)
+```
+
+When a graduation event is detected the server sells the position on the new market and reports `"graduation"` as the exit reason.
+
+### Update wallets mid-session
+
+Add or remove wallets without reconnecting:
+
+```python
+await session.sender().update_wallets(["WALLET_1_PUBKEY", "WALLET_2_PUBKEY"])
+```
+
+The server diffs the new list against the current set and registers/unregisters accordingly.
 
 Notes:
 
