@@ -257,6 +257,15 @@ pub struct BuildSellTxRequest {
     /// Optional tip amount in lamports for the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tip_lamports: Option<u64>,
+    /// Partner fee recipient wallet (base58 pubkey).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partner_fee_recipient: Option<String>,
+    /// Partner fee in basis points (max 50 = 0.5%). Mutually exclusive with `partner_fee_lamports`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partner_fee_bps: Option<u16>,
+    /// Partner fee as flat SOL lamports (max 50_000_000). Mutually exclusive with `partner_fee_bps`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partner_fee_lamports: Option<u64>,
 }
 
 /// Request payload for `POST /v1/buy`.
@@ -280,6 +289,15 @@ pub struct BuildBuyTxRequest {
     /// Optional tip amount in lamports for the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tip_lamports: Option<u64>,
+    /// Partner fee recipient wallet (base58 pubkey).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partner_fee_recipient: Option<String>,
+    /// Partner fee in basis points (max 50 = 0.5%). Mutually exclusive with `partner_fee_lamports`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partner_fee_bps: Option<u16>,
+    /// Partner fee as flat SOL lamports (max 50_000_000). Mutually exclusive with `partner_fee_bps`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partner_fee_lamports: Option<u64>,
 }
 
 /// Preferred output asset for sell requests.
@@ -509,6 +527,9 @@ mod tests {
             market_context: None,
             send_mode: None,
             tip_lamports: None,
+            partner_fee_recipient: None,
+            partner_fee_bps: None,
+            partner_fee_lamports: None,
         };
 
         let value = serde_json::to_value(request).expect("serialize request");

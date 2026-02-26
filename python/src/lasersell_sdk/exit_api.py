@@ -65,6 +65,9 @@ class BuildSellTxRequest:
     market_context: MarketContextMsg | None = None
     send_mode: str | None = None
     tip_lamports: int | None = None
+    partner_fee_recipient: str | None = None
+    partner_fee_bps: int | None = None
+    partner_fee_lamports: int | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -85,6 +88,12 @@ class BuildSellTxRequest:
             payload["send_mode"] = self.send_mode
         if self.tip_lamports is not None:
             payload["tip_lamports"] = self.tip_lamports
+        if self.partner_fee_recipient is not None:
+            payload["partner_fee_recipient"] = self.partner_fee_recipient
+        if self.partner_fee_bps is not None:
+            payload["partner_fee_bps"] = self.partner_fee_bps
+        if self.partner_fee_lamports is not None:
+            payload["partner_fee_lamports"] = self.partner_fee_lamports
 
         return payload
 
@@ -100,6 +109,9 @@ class BuildBuyTxRequest:
     mode: str | None = None
     send_mode: str | None = None
     tip_lamports: int | None = None
+    partner_fee_recipient: str | None = None
+    partner_fee_bps: int | None = None
+    partner_fee_lamports: int | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -116,6 +128,12 @@ class BuildBuyTxRequest:
             payload["send_mode"] = self.send_mode
         if self.tip_lamports is not None:
             payload["tip_lamports"] = self.tip_lamports
+        if self.partner_fee_recipient is not None:
+            payload["partner_fee_recipient"] = self.partner_fee_recipient
+        if self.partner_fee_bps is not None:
+            payload["partner_fee_bps"] = self.partner_fee_bps
+        if self.partner_fee_lamports is not None:
+            payload["partner_fee_lamports"] = self.partner_fee_lamports
 
         return payload
 

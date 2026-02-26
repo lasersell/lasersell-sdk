@@ -35,6 +35,12 @@ export interface BuildSellTxRequest {
   send_mode?: SendMode;
   /** Optional tip amount in lamports for the transaction. */
   tip_lamports?: number;
+  /** Partner fee recipient wallet (base58 pubkey). */
+  partner_fee_recipient?: string;
+  /** Partner fee in basis points (max 50 = 0.5%). Mutually exclusive with `partner_fee_lamports`. */
+  partner_fee_bps?: number;
+  /** Partner fee as flat SOL lamports (max 50_000_000). Mutually exclusive with `partner_fee_bps`. */
+  partner_fee_lamports?: number;
 }
 
 export interface BuildBuyTxRequest {
@@ -47,6 +53,12 @@ export interface BuildBuyTxRequest {
   send_mode?: SendMode;
   /** Optional tip amount in lamports for the transaction. */
   tip_lamports?: number;
+  /** Partner fee recipient wallet (base58 pubkey). */
+  partner_fee_recipient?: string;
+  /** Partner fee in basis points (max 50 = 0.5%). Mutually exclusive with `partner_fee_lamports`. */
+  partner_fee_bps?: number;
+  /** Partner fee as flat SOL lamports (max 50_000_000). Mutually exclusive with `partner_fee_bps`. */
+  partner_fee_lamports?: number;
 }
 
 export interface BuildTxResponse {

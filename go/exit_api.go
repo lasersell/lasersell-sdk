@@ -132,26 +132,32 @@ const (
 
 // BuildSellTxRequest is the request payload for POST /v1/sell.
 type BuildSellTxRequest struct {
-	Mint          string                   `json:"mint"`
-	UserPubkey    string                   `json:"user_pubkey"`
-	AmountTokens  uint64                   `json:"amount_tokens"`
-	SlippageBps   *uint16                  `json:"slippage_bps,omitempty"`
-	Mode          *string                  `json:"mode,omitempty"`
-	Output        *SellOutput              `json:"output,omitempty"`
-	MarketContext *stream.MarketContextMsg `json:"market_context,omitempty"`
-	SendMode      *string                  `json:"send_mode,omitempty"`
-	TipLamports   *uint64                  `json:"tip_lamports,omitempty"`
+	Mint                string                   `json:"mint"`
+	UserPubkey          string                   `json:"user_pubkey"`
+	AmountTokens        uint64                   `json:"amount_tokens"`
+	SlippageBps         *uint16                  `json:"slippage_bps,omitempty"`
+	Mode                *string                  `json:"mode,omitempty"`
+	Output              *SellOutput              `json:"output,omitempty"`
+	MarketContext       *stream.MarketContextMsg `json:"market_context,omitempty"`
+	SendMode            *string                  `json:"send_mode,omitempty"`
+	TipLamports         *uint64                  `json:"tip_lamports,omitempty"`
+	PartnerFeeRecipient *string                  `json:"partner_fee_recipient,omitempty"`
+	PartnerFeeBps       *uint16                  `json:"partner_fee_bps,omitempty"`
+	PartnerFeeLamports  *uint64                  `json:"partner_fee_lamports,omitempty"`
 }
 
 // BuildBuyTxRequest is the request payload for POST /v1/buy.
 type BuildBuyTxRequest struct {
-	Mint             string  `json:"mint"`
-	UserPubkey       string  `json:"user_pubkey"`
-	AmountQuoteUnits uint64  `json:"amount_quote_units"`
-	SlippageBps      *uint16 `json:"slippage_bps,omitempty"`
-	Mode             *string `json:"mode,omitempty"`
-	SendMode         *string `json:"send_mode,omitempty"`
-	TipLamports      *uint64 `json:"tip_lamports,omitempty"`
+	Mint                string  `json:"mint"`
+	UserPubkey          string  `json:"user_pubkey"`
+	AmountQuoteUnits    uint64  `json:"amount_quote_units"`
+	SlippageBps         *uint16 `json:"slippage_bps,omitempty"`
+	Mode                *string `json:"mode,omitempty"`
+	SendMode            *string `json:"send_mode,omitempty"`
+	TipLamports         *uint64 `json:"tip_lamports,omitempty"`
+	PartnerFeeRecipient *string `json:"partner_fee_recipient,omitempty"`
+	PartnerFeeBps       *uint16 `json:"partner_fee_bps,omitempty"`
+	PartnerFeeLamports  *uint64 `json:"partner_fee_lamports,omitempty"`
 }
 
 // BuildTxResponse is the common buy/sell response payload.
