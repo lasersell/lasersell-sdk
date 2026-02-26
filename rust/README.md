@@ -75,6 +75,20 @@ while let Some(event) = session.recv().await {
 }
 ```
 
+## RPC endpoint
+
+The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+
+```rust
+let target = SendTarget::default_rpc();
+```
+
+**A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others:
+
+```rust
+let target = SendTarget::Rpc { url: "https://your-private-rpc.example.com".to_string() };
+```
+
 ## Examples
 
 See `examples/` for runnable programs:

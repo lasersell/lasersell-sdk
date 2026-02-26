@@ -33,6 +33,12 @@ pub const HELIUS_SENDER_PING_URL: &str = concat!(helius_sender_base_url!(), "/pi
 /// Default Astralane Iris region (Frankfurt).
 pub const ASTRALANE_DEFAULT_REGION: &str = "fr";
 
+/// Solana mainnet-beta public RPC endpoint.
+///
+/// This is rate-limited and intended for getting started only.
+/// For production use, get a free private RPC from Helius or Chainstack.
+pub const MAINNET_BETA_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+
 /// Builds the Astralane Iris endpoint URL for a given region.
 ///
 /// Known regions: `fr` (Frankfurt, recommended), `fr2`, `la` (San Francisco),
@@ -58,6 +64,15 @@ pub enum SendTarget {
 }
 
 impl SendTarget {
+    /// Creates an RPC send target using the Solana public mainnet-beta endpoint.
+    ///
+    /// **Not recommended for production.** The public endpoint is heavily
+    /// rate-limited. Use `SendTarget::Rpc { url }` with a private RPC instead.
+    /// Free tiers are available from providers like Helius and Chainstack.
+    pub fn default_rpc() -> Self {
+        Self::Rpc { url: MAINNET_BETA_RPC_URL.to_string() }
+    }
+
     /// Returns the HTTP endpoint URL to POST `sendTransaction` to.
     pub fn endpoint(&self) -> String {
         match self {

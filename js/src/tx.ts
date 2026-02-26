@@ -25,6 +25,14 @@ export function astralaneIrisUrl(region: string): string {
   return `https://${region}.gateway.astralane.io/iris`;
 }
 
+/**
+ * Solana mainnet-beta public RPC endpoint.
+ *
+ * Rate-limited and intended for getting started only.
+ * For production, use a private RPC from Helius or Chainstack (free tiers available).
+ */
+export const MAINNET_BETA_RPC_URL = "https://api.mainnet-beta.solana.com";
+
 /** Unified send target that selects the transaction submission endpoint. */
 export type SendTarget =
   | { kind: "rpc"; url: string }
@@ -34,6 +42,15 @@ export type SendTarget =
 /** Creates an RPC send target. */
 export function sendTargetRpc(url: string): SendTarget {
   return { kind: "rpc", url };
+}
+
+/**
+ * Creates an RPC send target using the Solana public mainnet-beta endpoint.
+ *
+ * **Not recommended for production.** Use `sendTargetRpc(url)` with a private RPC.
+ */
+export function sendTargetDefaultRpc(): SendTarget {
+  return { kind: "rpc", url: MAINNET_BETA_RPC_URL };
 }
 
 /** Creates a Helius Sender send target. */

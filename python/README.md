@@ -112,6 +112,22 @@ Notes:
 - Use `client.with_endpoint("wss://stream-dev.example/v1/ws")` to target a custom stream endpoint.
 - `unsigned_tx_b64` from stream events can be signed with `lasersell_sdk.tx.sign_unsigned_tx`.
 
+## RPC endpoint
+
+The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+
+```python
+from lasersell_sdk.tx import SendTargetRpc
+
+target = SendTargetRpc()  # uses mainnet-beta public RPC
+```
+
+**A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others:
+
+```python
+target = SendTargetRpc(url="https://your-private-rpc.example.com")
+```
+
 ## Examples
 
 See `examples/README.md` for setup and script-by-script instructions.

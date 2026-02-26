@@ -19,6 +19,8 @@ HELIUS_SENDER_FAST_URL = "https://sender.helius-rpc.com/fast"
 
 ASTRALANE_DEFAULT_REGION = "fr"
 
+MAINNET_BETA_RPC_URL = "https://api.mainnet-beta.solana.com"
+
 
 def astralane_iris_url(region: str) -> str:
     """Build the Astralane Iris endpoint URL for a given region.
@@ -32,9 +34,13 @@ def astralane_iris_url(region: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class SendTargetRpc:
-    """Standard Solana JSON-RPC endpoint."""
+    """Standard Solana JSON-RPC endpoint.
 
-    url: str
+    When no URL is provided, falls back to the Solana public mainnet-beta
+    endpoint. This is rate-limited — use a private RPC for production.
+    """
+
+    url: str = MAINNET_BETA_RPC_URL
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +404,7 @@ def _coerce_exception(error: BaseException) -> Exception:
 __all__ = [
     "ASTRALANE_DEFAULT_REGION",
     "HELIUS_SENDER_FAST_URL",
+    "MAINNET_BETA_RPC_URL",
     "astralane_iris_url",
     "SendTarget",
     "SendTargetAstralane",

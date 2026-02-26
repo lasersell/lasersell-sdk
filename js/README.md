@@ -96,6 +96,24 @@ while (true) {
 Use `session.updateStrategy(...)` when changing strategy so local deadline timers stay in sync (pass a second `deadlineTimeoutSec` argument to change local deadline timing).
 Use `singleWalletStreamConfigureOptional(...)` / `strategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, or timeout must be enabled.
 
+## RPC endpoint
+
+The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+
+```ts
+import { sendTargetDefaultRpc } from "@lasersell/lasersell-sdk";
+
+const target = sendTargetDefaultRpc();
+```
+
+**A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others:
+
+```ts
+import { sendTargetRpc } from "@lasersell/lasersell-sdk";
+
+const target = sendTargetRpc("https://your-private-rpc.example.com");
+```
+
 ## Examples
 
 Runnable examples live in `examples/`:

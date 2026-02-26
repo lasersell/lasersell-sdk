@@ -71,6 +71,7 @@ import {
   ExitApiClient,
   signUnsignedTx,
   sendTransaction,
+  sendTargetDefaultRpc,
   sendTargetRpc,
 } from "@lasersell/lasersell-sdk";
 import { Keypair } from "@solana/web3.js";
@@ -86,7 +87,10 @@ const unsignedTxB64 = await client.buildSellTxB64({
 });
 
 const signedTx = signUnsignedTx(unsignedTxB64, keypair);
-const signature = await sendTransaction(sendTargetRpc(process.env.RPC_URL!), signedTx);
+// Quick start: use the built-in public RPC (rate-limited, not for production)
+const signature = await sendTransaction(sendTargetDefaultRpc(), signedTx);
+// Production: use a private RPC from Helius, Chainstack, etc.
+// const signature = await sendTransaction(sendTargetRpc(process.env.RPC_URL!), signedTx);
 ```
 
 **Python**
@@ -107,7 +111,10 @@ request = BuildSellTxRequest(
 
 unsigned_tx_b64 = await client.build_sell_tx_b64(request)
 signed_tx = sign_unsigned_tx(unsigned_tx_b64, keypair)
-signature = await send_transaction(SendTargetRpc(url="YOUR_RPC_URL"), signed_tx)
+# Quick start: use the built-in public RPC (rate-limited, not for production)
+signature = await send_transaction(SendTargetRpc(), signed_tx)
+# Production: use a private RPC from Helius, Chainstack, etc.
+# signature = await send_transaction(SendTargetRpc(url="YOUR_RPC_URL"), signed_tx)
 ```
 
 ### 3. Automate exits with the stream
@@ -141,6 +148,34 @@ while (true) {
   }
 }
 ```
+
+## RPC endpoint
+
+Every SDK ships with the Solana public mainnet-beta RPC (`https://api.mainnet-beta.solana.com`) as a built-in default so you can get started without configuring an RPC provider:
+
+```ts
+// TypeScript — zero-config RPC
+import { sendTargetDefaultRpc } from "@lasersell/lasersell-sdk";
+const target = sendTargetDefaultRpc();
+```
+
+```python
+# Python — zero-config RPC
+from lasersell_sdk.tx import SendTargetRpc
+target = SendTargetRpc()  # uses mainnet-beta public RPC
+```
+
+```rust
+// Rust — zero-config RPC
+let target = SendTarget::default_rpc();
+```
+
+```go
+// Go — zero-config RPC
+target := lasersell.SendTargetDefaultRpc()
+```
+
+**A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others.
 
 ## SDK documentation
 

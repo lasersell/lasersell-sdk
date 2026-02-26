@@ -68,6 +68,20 @@ go run ./examples/auto_sell
 - `examples/build_and_send_sell/main.go`
 - `examples/auto_sell/main.go`
 
+## RPC endpoint
+
+The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+
+```go
+target := lasersell.SendTargetDefaultRpc()
+```
+
+**A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others:
+
+```go
+target := lasersell.SendTargetRpc("https://your-private-rpc.example.com")
+```
+
 ## API notes
 
 - Use `context.Context` on all network operations to control cancellation/timeouts.
