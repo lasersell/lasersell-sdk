@@ -10,7 +10,8 @@ LaserSell is a professional Solana trade execution API. It builds optimized tran
 - Connects to the LaserSell real-time stream to receive exit signals with pre-built transactions
 - Signs transactions locally (non-custodial — private keys never leave the client)
 - Submits signed transactions to Solana via multiple backends (standard RPC, Helius Sender, Astralane Iris)
-- Supports automated exit strategies: take-profit, stop-loss, and deadline timeouts
+- Supports automated exit strategies: take-profit, stop-loss, trailing stop, deadline timeout, and sell-on-graduation
+- Quote currencies: SOL and USD1
 
 ## Languages
 
@@ -38,7 +39,7 @@ For automated exits: connect to the stream, receive exit signals with pre-built 
 
 ## Use cases
 
-- Automated exit strategies (take-profit, stop-loss, timeout)
+- Automated exit strategies (take-profit, stop-loss, trailing stop, deadline timeout, sell-on-graduation)
 - One-shot token buys and sells with optimized routing
 - AI agent trading on Solana (the API handles DEX routing and transaction building, agents just call the SDK)
 - Custom trading bots and portfolio management tools
@@ -46,7 +47,7 @@ For automated exits: connect to the stream, receive exit signals with pre-built 
 
 ## Supported DEXs
 
-Pump.fun, Raydium (LaunchLab, CPMM), Meteora (DBC, DAMM v2), Bags.fm
+Pump.fun, PumpSwap, Raydium (Launchpad, CPMM), Meteora (DBC, DAMM v2), Bags.fm
 
 ## Links
 
