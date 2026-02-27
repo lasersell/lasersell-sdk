@@ -13,9 +13,8 @@ Rust SDK for the LaserSell API.
 
 ## Install
 
-```toml
-[dependencies]
-lasersell-sdk = "0.2"
+```bash
+cargo add lasersell-sdk
 ```
 
 ## Build a sell transaction
