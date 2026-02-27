@@ -10,6 +10,7 @@ import {
 
 const MIN_RECONNECT_BACKOFF_MS = 100;
 const MAX_RECONNECT_BACKOFF_MS = 2_000;
+const KEEPALIVE_INTERVAL_MS = 30_000;
 
 export const STREAM_ENDPOINT = "wss://stream.lasersell.io/v1/ws";
 export const LOCAL_STREAM_ENDPOINT = "ws://localhost:8082/v1/ws";
@@ -675,11 +676,14 @@ class StreamConnectionWorker {
         this.resolveReady();
       }
 
+      let lastActivity = Date.now();
+
       while (!this.stopped) {
         const nextOutbound = this.outbound.shiftNow();
         if (nextOutbound !== undefined) {
           try {
             await sendClientMessage(socket, nextOutbound);
+            lastActivity = Date.now();
             continue;
           } catch {
             return "reconnect";
@@ -692,11 +696,19 @@ class StreamConnectionWorker {
           if (outcome === "reconnect") {
             return "reconnect";
           }
+          lastActivity = Date.now();
           continue;
         }
 
         const outboundWait = this.outbound.shiftCancelable();
         const frameWait = frames.waitNextCancelable();
+        const keepaliveMs = Math.max(
+          0,
+          KEEPALIVE_INTERVAL_MS - (Date.now() - lastActivity),
+        );
+        const keepaliveWait = new Promise<void>((resolve) =>
+          setTimeout(resolve, keepaliveMs),
+        );
         const next = await Promise.race([
           outboundWait.promise.then((message) => ({
             source: "outbound" as const,
@@ -706,7 +718,22 @@ class StreamConnectionWorker {
             source: "frame" as const,
             frame: nextFrame,
           })),
+          keepaliveWait.then(() => ({
+            source: "keepalive" as const,
+          })),
         ]);
+
+        if (next.source === "keepalive") {
+          outboundWait.cancel();
+          frameWait.cancel();
+          try {
+            socket.ping();
+            lastActivity = Date.now();
+          } catch {
+            return "reconnect";
+          }
+          continue;
+        }
 
         if (next.source === "outbound") {
           frameWait.cancel();
@@ -716,6 +743,7 @@ class StreamConnectionWorker {
 
           try {
             await sendClientMessage(socket, next.message);
+            lastActivity = Date.now();
             continue;
           } catch {
             return "reconnect";
@@ -727,6 +755,7 @@ class StreamConnectionWorker {
         if (outcome === "reconnect") {
           return "reconnect";
         }
+        lastActivity = Date.now();
       }
 
       return "graceful_shutdown";

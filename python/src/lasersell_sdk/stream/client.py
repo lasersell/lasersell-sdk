@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Callable, Mapping, TypedDict, cast
@@ -21,6 +22,7 @@ from .proto import (
 MIN_RECONNECT_BACKOFF_MS = 100
 MAX_RECONNECT_BACKOFF_MS = 2_000
 FRAME_IDLE_SLEEP_MS = 10
+KEEPALIVE_INTERVAL_S = 30
 
 STREAM_ENDPOINT = "wss://stream.lasersell.io/v1/ws"
 LOCAL_STREAM_ENDPOINT = "ws://localhost:8082/v1/ws"
@@ -342,15 +344,26 @@ class StreamConnectionWorker:
             if not self._ready.done():
                 self._ready.set_result(None)
 
+            last_activity = time.monotonic()
+
             while not self._stopped:
                 next_outbound = self._pop_next_outbound_message()
                 if next_outbound is not None:
                     try:
                         await _send_client_message(socket, next_outbound)
+                        last_activity = time.monotonic()
                     except Exception:
                         self._pending.appendleft(next_outbound)
                         return "reconnect"
                     continue
+
+                idle = time.monotonic() - last_activity
+                if idle >= KEEPALIVE_INTERVAL_S:
+                    try:
+                        await socket.ping()
+                        last_activity = time.monotonic()
+                    except Exception:
+                        return "reconnect"
 
                 try:
                     frame = await asyncio.wait_for(
@@ -361,6 +374,8 @@ class StreamConnectionWorker:
                     continue
                 except Exception:
                     return "reconnect"
+
+                last_activity = time.monotonic()
 
                 if isinstance(frame, str):
                     try:

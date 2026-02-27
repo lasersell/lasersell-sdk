@@ -21,6 +21,7 @@ use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(2);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 /// Production websocket endpoint for the stream service.
 pub const STREAM_ENDPOINT: &str = "wss://stream.lasersell.io/v1/ws";
 /// Local development websocket endpoint for the stream service.
@@ -617,8 +618,16 @@ async fn run_connected_session(
         }
     }
 
+    let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
+    keepalive.reset();
+
     loop {
         tokio::select! {
+            _ = keepalive.tick() => {
+                if socket.send(Message::Ping(vec![].into())).await.is_err() {
+                    return Ok(SessionOutcome::Reconnect);
+                }
+            }
             maybe_outbound = outbound_rx.recv() => {
                 match maybe_outbound {
                     Some(client_msg) => {

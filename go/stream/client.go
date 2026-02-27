@@ -18,6 +18,7 @@ import (
 const (
 	minReconnectBackoff = 100 * time.Millisecond
 	maxReconnectBackoff = 2 * time.Second
+	keepaliveInterval   = 30 * time.Second
 	ioWriteTimeout      = 5 * time.Second
 	ioReadTimeout       = 60 * time.Second
 	ioDialTimeout       = 10 * time.Second
@@ -573,11 +574,19 @@ func (w *streamConnectionWorker) runConnectedSession(
 	readResults := make(chan readResult, 8)
 	go streamReadLoop(w.ctx, conn, readResults)
 
+	keepalive := time.NewTicker(keepaliveInterval)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case <-w.ctx.Done():
 			_ = conn.Close(websocket.StatusNormalClosure, "shutdown")
 			return sessionOutcomeGracefulShutdown, nil
+		case <-keepalive.C:
+			ping := PingClientMessage{ClientTimeMS: uint64(time.Now().UnixMilli())}
+			if err := writeClientMessage(w.ctx, conn, ping); err != nil {
+				return sessionOutcomeReconnect, nil
+			}
 		case outbound := <-w.outbound:
 			if err := writeClientMessage(w.ctx, conn, outbound); err != nil {
 				*pending = prependPending(*pending, outbound)
