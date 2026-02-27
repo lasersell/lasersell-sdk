@@ -255,7 +255,14 @@ class ExitApiClient:
         return response.tx
 
     async def build_buy_tx(self, request: BuildBuyTxRequest) -> BuildTxResponse:
-        """Builds an unsigned buy transaction."""
+        """Builds an unsigned buy transaction.
+
+        IMPORTANT: If you plan to track this buy with the Exit Intelligence Stream,
+        you must connect and configure the stream BEFORE submitting this transaction.
+        The stream detects positions by observing on-chain token arrivals in real time.
+        If the stream is not connected when the buy lands, the position will not be
+        tracked and no exit signals will be generated.
+        """
 
         return await self._build_tx("/v1/buy", request.to_payload())
 

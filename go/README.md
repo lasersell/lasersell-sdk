@@ -2,11 +2,13 @@
 
 Go SDK for the LaserSell API.
 
+> **Full documentation:** [docs.lasersell.io/api/sdk/go](https://docs.lasersell.io/api/sdk/go)
+
 ## Modules
 
-- `exit_api`: Build unsigned buy/sell transactions.
-- `stream`: Websocket client, protocol models, and session helpers.
-- `tx`: Sign, encode, and submit Solana transactions.
+- `exit_api`: Build unsigned [buy](https://docs.lasersell.io/api/exit-api/buy)/[sell](https://docs.lasersell.io/api/exit-api/sell) transactions.
+- `stream`: [Exit Intelligence Stream](https://docs.lasersell.io/api/stream/overview) client, protocol models, and session helpers.
+- `tx`: [Sign, encode, and submit](https://docs.lasersell.io/api/transactions/signing) Solana transactions.
 - `retry`: Shared retry helpers.
 
 ## Install
@@ -84,6 +86,7 @@ target := lasersell.SendTargetRpc("https://your-private-rpc.example.com")
 
 ## API notes
 
+- **Connect the stream before buying.** The stream detects positions by watching on-chain token arrivals. If the stream is not connected when a buy lands, the position will not be tracked. See [docs.lasersell.io/api/exit-api/buy](https://docs.lasersell.io/api/exit-api/buy).
 - Use `context.Context` on all network operations to control cancellation/timeouts.
 - API parser supports current and legacy response envelopes.
 - Stream client includes reconnect handling and sender/session utilities.

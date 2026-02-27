@@ -144,6 +144,12 @@ impl ExitApiClient {
     }
 
     /// Builds an unsigned buy transaction.
+    ///
+    /// **Important:** If you plan to track this buy with the Exit Intelligence Stream,
+    /// you must connect and configure the stream **before** submitting this transaction.
+    /// The stream detects positions by observing on-chain token arrivals in real time.
+    /// If the stream is not connected when the buy lands, the position will not be
+    /// tracked and no exit signals will be generated.
     pub async fn build_buy_tx(
         &self,
         request: &BuildBuyTxRequest,

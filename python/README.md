@@ -2,11 +2,13 @@
 
 Python SDK for the LaserSell API.
 
+> **Full documentation:** [docs.lasersell.io/api/sdk/python](https://docs.lasersell.io/api/sdk/python)
+
 Modules:
 
-- `exit_api`: build unsigned buy/sell transactions.
-- `stream`: websocket client, protocol types, and session helpers.
-- `tx`: sign/encode/send Solana transactions.
+- `exit_api`: build unsigned [buy](https://docs.lasersell.io/api/exit-api/buy)/[sell](https://docs.lasersell.io/api/exit-api/sell) transactions.
+- `stream`: [Exit Intelligence Stream](https://docs.lasersell.io/api/stream/overview) client, protocol types, and session helpers.
+- `tx`: [sign/encode/send](https://docs.lasersell.io/api/transactions/signing) Solana transactions.
 - `retry`: shared retry helpers.
 
 ## Install
@@ -64,6 +66,8 @@ Notes:
 - Use `client.with_base_url("https://api-dev.example")` to target a custom base URL.
 
 ## Stream + auto-sell flow
+
+> **Important:** Connect the stream **before** submitting a buy transaction. See [docs.lasersell.io/api/exit-api/buy](https://docs.lasersell.io/api/exit-api/buy) for details.
 
 ```python
 import asyncio

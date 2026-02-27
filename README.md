@@ -35,9 +35,9 @@
 
 ## What can you build with the SDK?
 
-- **Automated exit strategies** — connect to the LaserSell Exit Intelligence stream, receive real-time exit signals with pre-built transactions, sign and submit in milliseconds.
-- **One-shot sells and buys** — build, sign, and submit a single transaction through the LaserSell API with optimized routing and slippage.
-- **Custom trading bots** — combine the stream, retry, and transaction modules to build production trading infrastructure.
+- **Automated exit strategies** — connect to the [Exit Intelligence Stream](https://docs.lasersell.io/api/stream/overview), receive real-time exit signals with pre-built transactions, sign and submit in milliseconds.
+- **One-shot sells and buys** — build, sign, and submit a single transaction through the [LaserSell API](https://docs.lasersell.io/api/exit-api/sell) with optimized routing and slippage.
+- **Custom trading bots** — combine the stream, retry, and [transaction modules](https://docs.lasersell.io/api/transactions/signing) to build production trading infrastructure.
 - **Portfolio management tools** — monitor positions, track PnL, and execute exits programmatically across multiple wallets.
 
 ## Install
@@ -60,7 +60,7 @@ go get github.com/lasersell/lasersell-sdk/go
 
 ### 1. Get an API key
 
-Sign up for free at [app.lasersell.io](https://app.lasersell.io/auth/sign-up) and create an API key from the dashboard. No credit card required.
+Sign up for free at [app.lasersell.io](https://app.lasersell.io/auth/sign-up) and create an API key from the dashboard. No credit card required. See the [Authentication guide](https://docs.lasersell.io/api/authentication) for details.
 
 ### 2. Build and send a transaction
 
@@ -119,7 +119,9 @@ signature = await send_transaction(SendTargetRpc(), signed_tx)
 
 ### 3. Automate exits with the stream
 
-Connect to the LaserSell Exit Intelligence stream to receive real-time exit signals with pre-built transactions:
+Connect to the [Exit Intelligence Stream](https://docs.lasersell.io/api/stream/overview) to receive real-time exit signals with pre-built transactions.
+
+> **Important:** Connect and configure the stream **before** submitting a buy transaction. The stream detects positions by watching for on-chain token arrivals. If the stream is not connected when the buy lands, the position will not be tracked. See the [Quickstart](https://docs.lasersell.io/api/quickstart) for the full flow.
 
 ```ts
 import {
@@ -151,7 +153,7 @@ while (true) {
 
 ## Strategy options
 
-The stream supports four exit conditions. At least one must be enabled:
+The stream supports four exit conditions. At least one must be enabled. See the [Strategy Configuration guide](https://docs.lasersell.io/api/stream/strategy-configuration) for full details and a trailing stop walkthrough.
 
 | Condition | Field | Description |
 |-----------|-------|-------------|
@@ -201,16 +203,31 @@ target := lasersell.SendTargetDefaultRpc()
 
 **A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others.
 
-## SDK documentation
+## Documentation
 
-Full API reference and examples for each language:
+Full API and SDK documentation is available at **[docs.lasersell.io/api](https://docs.lasersell.io/api/overview)**.
 
-| Language | Package | Docs |
-|----------|---------|------|
-| TypeScript | [`@lasersell/lasersell-sdk`](https://www.npmjs.com/package/@lasersell/lasersell-sdk) | [README](js/README.md) · [Examples](js/examples/) |
-| Python | [`lasersell-sdk`](https://pypi.org/project/lasersell-sdk/) | [README](python/README.md) · [Examples](python/examples/) |
-| Rust | [`lasersell-sdk`](https://crates.io/crates/lasersell-sdk) | [README](rust/README.md) · [Examples](rust/examples/) |
-| Go | [`github.com/lasersell/lasersell-sdk/go`](https://pkg.go.dev/github.com/lasersell/lasersell-sdk/go) | [README](go/README.md) · [Examples](go/examples/) |
+| Topic | Link |
+|-------|------|
+| API and SDK Overview | [docs.lasersell.io/api/overview](https://docs.lasersell.io/api/overview) |
+| Authentication | [docs.lasersell.io/api/authentication](https://docs.lasersell.io/api/authentication) |
+| Quickstart | [docs.lasersell.io/api/quickstart](https://docs.lasersell.io/api/quickstart) |
+| POST /v1/sell | [docs.lasersell.io/api/exit-api/sell](https://docs.lasersell.io/api/exit-api/sell) |
+| POST /v1/buy | [docs.lasersell.io/api/exit-api/buy](https://docs.lasersell.io/api/exit-api/buy) |
+| Exit Intelligence Stream | [docs.lasersell.io/api/stream/overview](https://docs.lasersell.io/api/stream/overview) |
+| Strategy Configuration | [docs.lasersell.io/api/stream/strategy-configuration](https://docs.lasersell.io/api/stream/strategy-configuration) |
+| Transaction Signing | [docs.lasersell.io/api/transactions/signing](https://docs.lasersell.io/api/transactions/signing) |
+| Send Targets | [docs.lasersell.io/api/transactions/send-targets](https://docs.lasersell.io/api/transactions/send-targets) |
+| Rate Limits and Tiers | [docs.lasersell.io/api/reference/rate-limits](https://docs.lasersell.io/api/reference/rate-limits) |
+
+### SDK guides
+
+| Language | Package | SDK Guide | README |
+|----------|---------|-----------|--------|
+| TypeScript | [`@lasersell/lasersell-sdk`](https://www.npmjs.com/package/@lasersell/lasersell-sdk) | [docs.lasersell.io/api/sdk/typescript](https://docs.lasersell.io/api/sdk/typescript) | [README](js/README.md) · [Examples](js/examples/) |
+| Python | [`lasersell-sdk`](https://pypi.org/project/lasersell-sdk/) | [docs.lasersell.io/api/sdk/python](https://docs.lasersell.io/api/sdk/python) | [README](python/README.md) · [Examples](python/examples/) |
+| Rust | [`lasersell-sdk`](https://crates.io/crates/lasersell-sdk) | [docs.lasersell.io/api/sdk/rust](https://docs.lasersell.io/api/sdk/rust) | [README](rust/README.md) · [Examples](rust/examples/) |
+| Go | [`github.com/lasersell/lasersell-sdk/go`](https://pkg.go.dev/github.com/lasersell/lasersell-sdk/go) | [docs.lasersell.io/api/sdk/go](https://docs.lasersell.io/api/sdk/go) | [README](go/README.md) · [Examples](go/examples/) |
 
 ## LaserSell ecosystem
 
@@ -242,11 +259,11 @@ Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy
 
 ### What is the Exit Intelligence stream?
 
-The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit, stop-loss, and trailing-stop thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders).
+The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit, stop-loss, and trailing-stop thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders) and the [Stream documentation](https://docs.lasersell.io/api/stream/overview).
 
 ### What's the difference between the API client and the stream?
 
-The API client (`ExitApiClient`) is for one-shot operations: build a single buy or sell transaction on demand. The stream (`StreamClient` + `StreamSession`) is for continuous monitoring: it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, trailing-stop, or timeout conditions are met.
+The API client (`ExitApiClient`) is for one-shot operations: build a single [buy](https://docs.lasersell.io/api/exit-api/buy) or [sell](https://docs.lasersell.io/api/exit-api/sell) transaction on demand. The stream (`StreamClient` + `StreamSession`) is for [continuous monitoring](https://docs.lasersell.io/api/stream/overview): it watches your positions in real time and sends exit signals with pre-built transactions the moment your take-profit, stop-loss, trailing-stop, or timeout conditions are met.
 
 ### How does the LaserSell CLI relate to the SDK?
 

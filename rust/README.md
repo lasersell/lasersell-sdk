@@ -2,11 +2,13 @@
 
 Rust SDK for the LaserSell API.
 
+> **Full documentation:** [docs.lasersell.io/api/sdk/rust](https://docs.lasersell.io/api/sdk/rust)
+
 ## Modules
 
-- `exit_api`: Build unsigned buy/sell transactions.
-- `stream`: Websocket client, protocol types, and session helpers.
-- `tx`: Sign, encode, and submit Solana transactions.
+- `exit_api`: Build unsigned [buy](https://docs.lasersell.io/api/exit-api/buy)/[sell](https://docs.lasersell.io/api/exit-api/sell) transactions.
+- `stream`: [Exit Intelligence Stream](https://docs.lasersell.io/api/stream/overview) client, protocol types, and session helpers.
+- `tx`: [Sign, encode, and submit](https://docs.lasersell.io/api/transactions/signing) Solana transactions.
 - `retry`: Shared retry helpers.
 
 ## Install
@@ -41,6 +43,8 @@ println!("{}", response.tx);
 ```
 
 ## Stream + auto-sell flow
+
+> **Important:** Connect the stream **before** submitting a buy transaction. See [docs.lasersell.io/api/exit-api/buy](https://docs.lasersell.io/api/exit-api/buy) for details.
 
 ```rust
 use lasersell_sdk::stream::client::{StreamClient, StreamConfigure, strategy_config_from_optional};
