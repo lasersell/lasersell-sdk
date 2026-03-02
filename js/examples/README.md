@@ -47,7 +47,7 @@ Required values:
 - API key
 - Token mint
 - User wallet pubkey
-- `amount_in_total` (atomic input-asset units)
+- `amount` (human-readable, e.g. `0.1` for 0.1 SOL)
 
 Behavior:
 

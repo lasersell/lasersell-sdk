@@ -2,8 +2,7 @@
 //
 // Before running:
 // - Replace API key, mint, and wallet placeholders.
-// - Set Amount as a human-readable decimal (e.g. 0.001 for 0.001 SOL),
-//   or use AmountInTotal in atomic units (for SOL input, lamports).
+// - Set Amount as a human-readable decimal (e.g. 0.001 for 0.001 SOL).
 package main
 
 import (

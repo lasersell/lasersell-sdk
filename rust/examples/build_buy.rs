@@ -2,8 +2,7 @@
 //!
 //! Before running:
 //! - Replace API key, mint, and wallet placeholders.
-//! - Set `amount` as a human-readable decimal (e.g. 0.001 for 0.001 SOL),
-//!   or use `amount_in_total` in atomic units (e.g. lamports for SOL).
+//! - Set `amount` as a human-readable decimal (e.g. 0.001 for 0.001 SOL).
 //! This example prints the unsigned transaction as base64 plus optional route
 //! metadata returned by the API.
 
