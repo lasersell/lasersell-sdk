@@ -74,9 +74,9 @@ func TestBuildSellRequestSerializesAmountTokensContract(t *testing.T) {
 		Mint:         "mint",
 		UserPubkey:   "user",
 		AmountTokens: 42,
-		SlippageBps:  Ptr(uint16(1200)),
+		Output:       SellOutputSOL,
+		SlippageBps:  1200,
 		Mode:         Ptr("fast"),
-		Output:       Ptr(SellOutputSOL),
 	}
 
 	payload, err := json.Marshal(request)

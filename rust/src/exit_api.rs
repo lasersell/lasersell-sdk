@@ -237,7 +237,7 @@ impl ExitApiClient {
 }
 
 /// Request payload for `POST /v1/sell`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct BuildSellTxRequest {
     /// Mint address of the token being sold.
     pub mint: String,
@@ -245,15 +245,13 @@ pub struct BuildSellTxRequest {
     pub user_pubkey: String,
     /// Amount of tokens to sell in mint atomic units.
     pub amount_tokens: u64,
-    /// Optional max slippage in basis points.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub slippage_bps: Option<u16>,
+    /// Desired output asset for sell proceeds.
+    pub output: SellOutput,
+    /// Max slippage in basis points.
+    pub slippage_bps: u16,
     /// Optional backend mode override.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-    /// Desired output asset for sell proceeds.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<SellOutput>,
     /// Optional market routing hint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market_context: Option<MarketContextMsg>,
@@ -275,17 +273,19 @@ pub struct BuildSellTxRequest {
 }
 
 /// Request payload for `POST /v1/buy`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct BuildBuyTxRequest {
     /// Mint address of the token being bought.
     pub mint: String,
     /// Trader wallet public key.
     pub user_pubkey: String,
-    /// Buy amount in quote-asset atomic units.
-    pub amount_quote_units: u64,
-    /// Optional max slippage in basis points.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub slippage_bps: Option<u16>,
+    /// Buy amount in input-asset atomic units.
+    pub amount_in_total: u64,
+    /// Max slippage in basis points.
+    pub slippage_bps: u16,
+    /// Input asset for the buy. Defaults to `"SOL"` when not set.
+    #[serde(serialize_with = "serialize_buy_input")]
+    pub input: Option<String>,
     /// Optional backend mode override.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
@@ -306,10 +306,19 @@ pub struct BuildBuyTxRequest {
     pub partner_fee_lamports: Option<u64>,
 }
 
+/// Serializes the buy `input` field, defaulting to `"SOL"` when `None`.
+fn serialize_buy_input<S: serde::Serializer>(
+    input: &Option<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(input.as_deref().unwrap_or("SOL"))
+}
+
 /// Preferred output asset for sell requests.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub enum SellOutput {
     /// Return proceeds as SOL.
+    #[default]
     #[serde(rename = "SOL")]
     Sol,
     /// Return proceeds as USD1.
@@ -526,16 +535,10 @@ mod tests {
             mint: "mint".to_string(),
             user_pubkey: "user".to_string(),
             amount_tokens: 42,
-            slippage_bps: Some(1200),
+            output: SellOutput::Sol,
+            slippage_bps: 1200,
             mode: Some("fast".to_string()),
-            output: Some(SellOutput::Sol),
-
-            market_context: None,
-            send_mode: None,
-            tip_lamports: None,
-            partner_fee_recipient: None,
-            partner_fee_bps: None,
-            partner_fee_lamports: None,
+            ..Default::default()
         };
 
         let value = serde_json::to_value(request).expect("serialize request");

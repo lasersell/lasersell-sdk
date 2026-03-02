@@ -20,6 +20,9 @@ export const EXIT_API_DEFAULTS = {
 
 export type SellOutput = "SOL" | "USD1";
 
+/** Input asset for buy requests. */
+export type BuyInput = "SOL" | "USD1";
+
 /** Transaction send mode for the exit API. */
 export type SendMode = "helius_sender" | "astralane" | "rpc";
 
@@ -27,9 +30,9 @@ export interface BuildSellTxRequest {
   mint: string;
   user_pubkey: string;
   amount_tokens: number;
-  slippage_bps?: number;
+  output: SellOutput;
+  slippage_bps: number;
   mode?: string;
-  output?: SellOutput;
   market_context?: MarketContextMsg;
   /** Transaction send mode: `"helius_sender"`, `"astralane"`, or `"rpc"`. */
   send_mode?: SendMode;
@@ -46,8 +49,10 @@ export interface BuildSellTxRequest {
 export interface BuildBuyTxRequest {
   mint: string;
   user_pubkey: string;
-  amount_quote_units: number;
-  slippage_bps?: number;
+  amount_in_total: number;
+  slippage_bps: number;
+  /** Input asset. Defaults to `"SOL"` when omitted. */
+  input?: BuyInput;
   mode?: string;
   /** Transaction send mode: `"helius_sender"`, `"astralane"`, or `"rpc"`. */
   send_mode?: SendMode;
@@ -225,7 +230,10 @@ export class ExitApiClient {
    * tracked and no exit signals will be generated.
    */
   async buildBuyTx(request: BuildBuyTxRequest): Promise<BuildTxResponse> {
-    return await this.buildTx("/v1/buy", request);
+    return await this.buildTx("/v1/buy", {
+      ...request,
+      input: request.input ?? "SOL",
+    });
   }
 
   private async buildTx<T extends object>(

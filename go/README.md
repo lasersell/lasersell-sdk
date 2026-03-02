@@ -34,13 +34,12 @@ func main() {
 	ctx := context.Background()
 	client := lasersell.NewExitAPIClientWithAPIKey("REPLACE_WITH_API_KEY")
 
-	output := lasersell.SellOutputSOL
 	response, err := client.BuildSellTx(ctx, lasersell.BuildSellTxRequest{
 		Mint:         "REPLACE_WITH_MINT",
 		UserPubkey:   "REPLACE_WITH_WALLET_PUBKEY",
 		AmountTokens: 1_000_000,
-		SlippageBps:  lasersell.Ptr(uint16(2_000)),
-		Output:       &output,
+		Output:       lasersell.SellOutputSOL,
+		SlippageBps:  2_000,
 	})
 	if err != nil {
 		log.Fatal(err)

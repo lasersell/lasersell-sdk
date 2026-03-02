@@ -147,13 +147,9 @@ async fn exit_api_client_smoke_posts_required_sell_fields_and_parses_envelope() 
         mint: TEST_MINT.to_string(),
         user_pubkey: TEST_WALLET.to_string(),
         amount_tokens: 25,
-        slippage_bps: Some(1500),
-        mode: None,
-        output: Some(SellOutput::Sol),
-
-        market_context: None,
-        send_mode: None,
-        tip_lamports: None,
+        output: SellOutput::Sol,
+        slippage_bps: 1500,
+        ..Default::default()
     };
 
     let response = client

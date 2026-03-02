@@ -29,12 +29,9 @@ let request = BuildSellTxRequest {
     mint: "REPLACE_WITH_MINT".to_string(),
     user_pubkey: "REPLACE_WITH_WALLET_PUBKEY".to_string(),
     amount_tokens: 1_000_000,
-    slippage_bps: Some(2_000),
-    output: Some(SellOutput::Sol),
-    mode: None,
-    market_context: None,
-    send_mode: None,
-    tip_lamports: None,
+    output: SellOutput::Sol,
+    slippage_bps: 2_000,
+    ..Default::default()
 };
 
 let response = client.build_sell_tx(&request).await?;

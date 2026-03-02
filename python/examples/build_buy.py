@@ -2,8 +2,8 @@
 
 Before running:
 - Replace API key, mint, and wallet placeholders.
-- Set `amount_quote_units` in quote-asset atomic units
-  (for SOL quote, this is lamports).
+- Set `amount_in_total` in input-asset atomic units
+  (for SOL input, this is lamports).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ async def main() -> None:
     request = BuildBuyTxRequest(
         mint="REPLACE_WITH_MINT",
         user_pubkey="REPLACE_WITH_WALLET_PUBKEY",
-        amount_quote_units=1_000_000,
+        amount_in_total=1_000_000,
         slippage_bps=2_000,
     )
 

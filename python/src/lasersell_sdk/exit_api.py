@@ -59,9 +59,9 @@ class BuildSellTxRequest:
     mint: str
     user_pubkey: str
     amount_tokens: int
-    slippage_bps: int | None = None
+    output: SellOutput | str
+    slippage_bps: int
     mode: str | None = None
-    output: SellOutput | str | None = None
     market_context: MarketContextMsg | None = None
     send_mode: str | None = None
     tip_lamports: int | None = None
@@ -74,14 +74,12 @@ class BuildSellTxRequest:
             "mint": self.mint,
             "user_pubkey": self.user_pubkey,
             "amount_tokens": self.amount_tokens,
+            "output": self.output.value if isinstance(self.output, SellOutput) else self.output,
+            "slippage_bps": self.slippage_bps,
         }
 
-        if self.slippage_bps is not None:
-            payload["slippage_bps"] = self.slippage_bps
         if self.mode is not None:
             payload["mode"] = self.mode
-        if self.output is not None:
-            payload["output"] = self.output.value if isinstance(self.output, SellOutput) else self.output
         if self.market_context is not None:
             payload["market_context"] = dict(self.market_context)
         if self.send_mode is not None:
@@ -104,8 +102,9 @@ class BuildBuyTxRequest:
 
     mint: str
     user_pubkey: str
-    amount_quote_units: int
-    slippage_bps: int | None = None
+    amount_in_total: int
+    slippage_bps: int
+    input: str = "SOL"
     mode: str | None = None
     send_mode: str | None = None
     tip_lamports: int | None = None
@@ -117,11 +116,11 @@ class BuildBuyTxRequest:
         payload: dict[str, object] = {
             "mint": self.mint,
             "user_pubkey": self.user_pubkey,
-            "amount_quote_units": self.amount_quote_units,
+            "amount_in_total": self.amount_in_total,
+            "slippage_bps": self.slippage_bps,
+            "input": self.input,
         }
 
-        if self.slippage_bps is not None:
-            payload["slippage_bps"] = self.slippage_bps
         if self.mode is not None:
             payload["mode"] = self.mode
         if self.send_mode is not None:

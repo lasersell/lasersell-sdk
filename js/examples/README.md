@@ -47,7 +47,7 @@ Required values:
 - API key
 - Token mint
 - User wallet pubkey
-- `amount_quote_units` (atomic quote units)
+- `amount_in_total` (atomic input-asset units)
 
 Behavior:
 

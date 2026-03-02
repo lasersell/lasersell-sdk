@@ -44,8 +44,8 @@ func main() {
 		Mint:         mint,
 		UserPubkey:   userPubkey,
 		AmountTokens: amountTokensAtomic,
-		SlippageBps:  lasersell.Ptr(slippageBps),
-		Output:       &output,
+		Output:       output,
+		SlippageBps:  slippageBps,
 	})
 	if err != nil {
 		log.Fatalf("build sell tx: %v", err)

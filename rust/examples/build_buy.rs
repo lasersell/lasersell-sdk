@@ -2,7 +2,7 @@
 //!
 //! Before running:
 //! - Replace API key, mint, and wallet placeholders.
-//! - Set `amount_quote_atomic` in the quote asset's smallest unit (e.g., lamports if buying with SOL).
+//! - Set `amount_in_total` in the input asset's smallest unit (e.g., lamports if buying with SOL).
 //! This example prints the unsigned transaction as base64 plus optional route
 //! metadata returned by the API.
 
@@ -25,12 +25,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let request = BuildBuyTxRequest {
         mint,
         user_pubkey,
-        amount_quote_units: amount_quote_atomic,
-        slippage_bps,
-        mode: None,
-
-        send_mode: None,
-        tip_lamports: None,
+        amount_in_total: amount_quote_atomic,
+        slippage_bps: slippage_bps.unwrap_or(2_000),
+        ..Default::default()
     };
 
     let response = client.build_buy_tx(&request).await?;

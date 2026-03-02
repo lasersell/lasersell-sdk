@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let user_pubkey = "REPLACE_WITH_WALLET_PUBKEY".to_string();
     // Example: for a 6-decimal mint, 1 whole token = 1_000_000 atomic units.
     let amount_tokens_atomic = 1_000_000_u64;
-    let slippage_bps = Some(2_000_u16); // 2,000 bps = 20%
+    let slippage_bps = 2_000_u16; // 2,000 bps = 20%
 
     let client = ExitApiClient::with_api_key(SecretString::new(api_key))?;
 
@@ -27,13 +27,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         mint,
         user_pubkey,
         amount_tokens: amount_tokens_atomic,
+        output: SellOutput::Sol,
         slippage_bps,
-        mode: None,
-        output: Some(SellOutput::Sol),
-
-        market_context: None,
-        send_mode: None,
-        tip_lamports: None,
+        ..Default::default()
     };
 
     let response = client.build_sell_tx(&request).await?;

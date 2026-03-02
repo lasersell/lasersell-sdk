@@ -135,9 +135,9 @@ type BuildSellTxRequest struct {
 	Mint                string                   `json:"mint"`
 	UserPubkey          string                   `json:"user_pubkey"`
 	AmountTokens        uint64                   `json:"amount_tokens"`
-	SlippageBps         *uint16                  `json:"slippage_bps,omitempty"`
+	Output              SellOutput               `json:"output"`
+	SlippageBps         uint16                   `json:"slippage_bps"`
 	Mode                *string                  `json:"mode,omitempty"`
-	Output              *SellOutput              `json:"output,omitempty"`
 	MarketContext       *stream.MarketContextMsg `json:"market_context,omitempty"`
 	SendMode            *string                  `json:"send_mode,omitempty"`
 	TipLamports         *uint64                  `json:"tip_lamports,omitempty"`
@@ -150,8 +150,9 @@ type BuildSellTxRequest struct {
 type BuildBuyTxRequest struct {
 	Mint                string  `json:"mint"`
 	UserPubkey          string  `json:"user_pubkey"`
-	AmountQuoteUnits    uint64  `json:"amount_quote_units"`
-	SlippageBps         *uint16 `json:"slippage_bps,omitempty"`
+	AmountInTotal       uint64  `json:"amount_in_total"`
+	SlippageBps         uint16  `json:"slippage_bps"`
+	Input               *string `json:"input,omitempty"`
 	Mode                *string `json:"mode,omitempty"`
 	SendMode            *string `json:"send_mode,omitempty"`
 	TipLamports         *uint64 `json:"tip_lamports,omitempty"`
@@ -253,6 +254,10 @@ func (c *ExitAPIClient) BuildBuyTx(
 	ctx context.Context,
 	request BuildBuyTxRequest,
 ) (BuildTxResponse, error) {
+	if request.Input == nil {
+		sol := "SOL"
+		request.Input = &sol
+	}
 	return c.buildTx(ctx, "/v1/buy", request)
 }
 
