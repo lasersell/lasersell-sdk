@@ -49,7 +49,10 @@ export interface BuildSellTxRequest {
 export interface BuildBuyTxRequest {
   mint: string;
   user_pubkey: string;
-  amount_in_total: number;
+  /** Buy amount in input-asset atomic units. Mutually exclusive with `amount`. */
+  amount_in_total?: number;
+  /** Human-readable buy amount (e.g. `0.1` for 0.1 SOL). Mutually exclusive with `amount_in_total`. */
+  amount?: number;
   slippage_bps: number;
   /** Input asset. Defaults to `"SOL"` when omitted. */
   input?: BuyInput;

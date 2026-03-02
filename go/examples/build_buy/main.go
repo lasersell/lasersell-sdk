@@ -2,7 +2,8 @@
 //
 // Before running:
 // - Replace API key, mint, and wallet placeholders.
-// - Set amountInTotal in input-asset atomic units (for SOL input, lamports).
+// - Set Amount as a human-readable decimal (e.g. 0.001 for 0.001 SOL),
+//   or use AmountInTotal in atomic units (for SOL input, lamports).
 package main
 
 import (
@@ -19,16 +20,16 @@ func main() {
 	apiKey := "REPLACE_WITH_API_KEY"
 	mint := "REPLACE_WITH_MINT"
 	userPubkey := "REPLACE_WITH_WALLET_PUBKEY"
-	amountInTotal := uint64(1_000_000) // Example: 1_000_000 lamports = 0.001 SOL.
+	amount := 0.001                    // 0.001 SOL
 	slippageBps := uint16(2_000)       // 2,000 bps = 20%.
 
 	client := lasersell.NewExitAPIClientWithAPIKey(apiKey)
 
 	response, err := client.BuildBuyTx(ctx, lasersell.BuildBuyTxRequest{
-		Mint:          mint,
-		UserPubkey:    userPubkey,
-		AmountInTotal: amountInTotal,
-		SlippageBps:   slippageBps,
+		Mint:        mint,
+		UserPubkey:  userPubkey,
+		Amount:      &amount,
+		SlippageBps: slippageBps,
 	})
 	if err != nil {
 		log.Fatalf("build buy tx: %v", err)

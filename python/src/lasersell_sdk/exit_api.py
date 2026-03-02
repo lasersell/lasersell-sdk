@@ -102,8 +102,11 @@ class BuildBuyTxRequest:
 
     mint: str
     user_pubkey: str
-    amount_in_total: int
     slippage_bps: int
+    amount_in_total: int | None = None
+    """Amount in input-asset atomic units. Mutually exclusive with ``amount``."""
+    amount: float | None = None
+    """Human-readable amount (e.g. ``0.1`` for 0.1 SOL). Mutually exclusive with ``amount_in_total``."""
     input: str = "SOL"
     mode: str | None = None
     send_mode: str | None = None
@@ -116,11 +119,14 @@ class BuildBuyTxRequest:
         payload: dict[str, object] = {
             "mint": self.mint,
             "user_pubkey": self.user_pubkey,
-            "amount_in_total": self.amount_in_total,
             "slippage_bps": self.slippage_bps,
             "input": self.input,
         }
 
+        if self.amount_in_total is not None:
+            payload["amount_in_total"] = self.amount_in_total
+        if self.amount is not None:
+            payload["amount"] = self.amount
         if self.mode is not None:
             payload["mode"] = self.mode
         if self.send_mode is not None:

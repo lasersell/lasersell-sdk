@@ -2,7 +2,8 @@
 //!
 //! Before running:
 //! - Replace API key, mint, and wallet placeholders.
-//! - Set `amount_in_total` in the input asset's smallest unit (e.g., lamports if buying with SOL).
+//! - Set `amount` as a human-readable decimal (e.g. 0.001 for 0.001 SOL),
+//!   or use `amount_in_total` in atomic units (e.g. lamports for SOL).
 //! This example prints the unsigned transaction as base64 plus optional route
 //! metadata returned by the API.
 
@@ -16,8 +17,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let api_key = "REPLACE_WITH_API_KEY".to_string();
     let mint = "REPLACE_WITH_MINT".to_string();
     let user_pubkey = "REPLACE_WITH_WALLET_PUBKEY".to_string();
-    // Example: 1_000_000 lamports = 0.001 SOL
-    let amount_quote_atomic = 1_000_000_u64;
     let slippage_bps = Some(2_000_u16); // 2,000 bps = 20%
 
     let client = ExitApiClient::with_api_key(SecretString::new(api_key))?;
@@ -25,7 +24,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let request = BuildBuyTxRequest {
         mint,
         user_pubkey,
-        amount_in_total: amount_quote_atomic,
+        amount: Some(0.001), // 0.001 SOL
         slippage_bps: slippage_bps.unwrap_or(2_000),
         ..Default::default()
     };

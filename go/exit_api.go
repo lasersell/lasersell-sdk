@@ -148,11 +148,14 @@ type BuildSellTxRequest struct {
 
 // BuildBuyTxRequest is the request payload for POST /v1/buy.
 type BuildBuyTxRequest struct {
-	Mint                string  `json:"mint"`
-	UserPubkey          string  `json:"user_pubkey"`
-	AmountInTotal       uint64  `json:"amount_in_total"`
-	SlippageBps         uint16  `json:"slippage_bps"`
-	Input               *string `json:"input,omitempty"`
+	Mint     string `json:"mint"`
+	UserPubkey string `json:"user_pubkey"`
+	// AmountInTotal is the buy amount in input-asset atomic units. Mutually exclusive with Amount.
+	AmountInTotal *uint64  `json:"amount_in_total,omitempty"`
+	// Amount is the human-readable buy amount (e.g. 0.1 for 0.1 SOL). Mutually exclusive with AmountInTotal.
+	Amount        *float64 `json:"amount,omitempty"`
+	SlippageBps   uint16   `json:"slippage_bps"`
+	Input         *string  `json:"input,omitempty"`
 	Mode                *string `json:"mode,omitempty"`
 	SendMode            *string `json:"send_mode,omitempty"`
 	TipLamports         *uint64 `json:"tip_lamports,omitempty"`

@@ -3,8 +3,8 @@
  *
  * Before running:
  * - Replace API key, mint, and wallet placeholders.
- * - Set `amount_in_total` in input-asset atomic units
- *   (for SOL, this is lamports).
+ * - Set `amount` as a human-readable decimal (e.g. 0.001 for 0.001 SOL),
+ *   or use `amount_in_total` in atomic units (lamports for SOL).
  *
  * This example prints:
  * - `unsigned_tx_b64`
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   const request: BuildBuyTxRequest = {
     mint: "REPLACE_WITH_MINT",
     user_pubkey: "REPLACE_WITH_WALLET_PUBKEY",
-    amount_in_total: 1_000_000,
+    amount: 0.001, // 0.001 SOL
     slippage_bps: 2_000,
   };
 

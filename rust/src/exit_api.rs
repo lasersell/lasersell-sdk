@@ -279,8 +279,12 @@ pub struct BuildBuyTxRequest {
     pub mint: String,
     /// Trader wallet public key.
     pub user_pubkey: String,
-    /// Buy amount in input-asset atomic units.
-    pub amount_in_total: u64,
+    /// Buy amount in input-asset atomic units. Mutually exclusive with `amount`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount_in_total: Option<u64>,
+    /// Human-readable buy amount (e.g. `0.1` for 0.1 SOL). Mutually exclusive with `amount_in_total`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
     /// Max slippage in basis points.
     pub slippage_bps: u16,
     /// Input asset for the buy. Defaults to `"SOL"` when not set.
