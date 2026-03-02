@@ -1,6 +1,6 @@
 # LaserSell SDK
 
-> Ultra-low latency Solana execution infrastructure. Non-custodial. Multi-language.
+> Low latency Solana execution infrastructure. Non-custodial. Multi-language.
 
 LaserSell is a professional Solana trade execution API. It builds optimized transactions across major Solana DEXs (Raydium, Pump.fun, Meteora), handles adaptive slippage, and monitors positions in real time. The SDK is the client library for interacting with the LaserSell API.
 

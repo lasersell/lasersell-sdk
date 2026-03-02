@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  Ultra-low latency Solana execution infrastructure.<br>
+  Low latency Solana execution infrastructure.<br>
   Deterministic routing. Adaptive slippage. Non-custodial.
 </p>
 
