@@ -236,6 +236,8 @@ Full API and SDK documentation is available at **[docs.lasersell.io/api](https:/
 | Website | [lasersell.io](https://lasersell.io) |
 | Dashboard & API keys | [app.lasersell.io](https://app.lasersell.io) |
 | Documentation | [docs.lasersell.io](https://docs.lasersell.io) |
+| Blog | [lasersell.io/blog](https://www.lasersell.io/blog) |
+| Benchmarks | [2-5x faster than every major Solana trading API](https://www.lasersell.io/blog/benchmark-results) |
 | LaserSell CLI (open source) | [github.com/lasersell/lasersell](https://github.com/lasersell/lasersell) |
 | SDKs (this repo) | [github.com/lasersell/lasersell-sdk](https://github.com/lasersell/lasersell-sdk) |
 | Discord | [discord.gg/lasersell](https://discord.gg/lasersell) |
