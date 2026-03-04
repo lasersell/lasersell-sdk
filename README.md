@@ -59,7 +59,7 @@ Add the [LaserSell MCP server](https://docs.lasersell.io/ai-agents/mcp-server) t
 For deeper SDK integration, install the [LaserSell coding skill](https://docs.lasersell.io/ai-agents/coding-skills) so your assistant has full context on SDK patterns, method signatures, examples, and troubleshooting loaded directly into its context window:
 
 ```bash
-npx @anthropic-ai/skills add lasersell
+npx skills add lasersell/skills
 ```
 
 ## Install
