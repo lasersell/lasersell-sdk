@@ -41,6 +41,21 @@
 - **Portfolio management tools** — monitor positions, track PnL, and execute exits programmatically across multiple wallets.
 - **Liquidity aware selling** — query real time [slippage bands and liquidity trends](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) to size sells optimally. Use `buildPartialSellTx()` to sell a portion of a position based on slippage data.
 
+## Using AI to code?
+
+Add the [LaserSell MCP server](https://docs.lasersell.io/ai-agents/mcp-server) to your editor so your AI assistant can search LaserSell documentation in real time. Works with Claude Code, Claude Desktop, Cursor, and Windsurf.
+
+```json
+{
+  "mcpServers": {
+    "lasersell-docs": {
+      "type": "streamable-http",
+      "url": "https://docs.lasersell.io/mcp"
+    }
+  }
+}
+```
+
 ## Install
 
 ```bash

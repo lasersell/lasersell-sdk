@@ -11,6 +11,8 @@ Modules:
 - `tx`: [sign/encode/send](https://docs.lasersell.io/api/transactions/signing) Solana transactions.
 - `retry`: shared retry helpers.
 
+> **Using AI to code?** Add the [LaserSell MCP server](https://docs.lasersell.io/ai-agents/mcp-server) to your editor so your AI assistant can search LaserSell documentation in real time.
+
 ## Install
 
 ```bash

@@ -11,6 +11,8 @@ Rust SDK for the LaserSell API.
 - `tx`: [Sign, encode, and submit](https://docs.lasersell.io/api/transactions/signing) Solana transactions.
 - `retry`: Shared retry helpers.
 
+> **Using AI to code?** Add the [LaserSell MCP server](https://docs.lasersell.io/ai-agents/mcp-server) to your editor so your AI assistant can search LaserSell documentation in real time.
+
 ## Install
 
 ```bash
