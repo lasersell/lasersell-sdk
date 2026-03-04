@@ -39,7 +39,7 @@
 - **One-shot sells and buys** — build, sign, and submit a single transaction through the [LaserSell API](https://docs.lasersell.io/api/exit-api/sell) with optimized routing and slippage.
 - **Custom trading bots** — combine the stream, retry, and [transaction modules](https://docs.lasersell.io/api/transactions/signing) to build production trading infrastructure.
 - **Portfolio management tools** — monitor positions, track PnL, and execute exits programmatically across multiple wallets.
-- **Liquidity aware selling** — query real time slippage bands and liquidity trends to size sells optimally. Use `buildPartialSellTx()` to sell a portion of a position based on slippage data.
+- **Liquidity aware selling** — query real time [slippage bands and liquidity trends](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) to size sells optimally. Use `buildPartialSellTx()` to sell a portion of a position based on slippage data.
 
 ## Install
 
