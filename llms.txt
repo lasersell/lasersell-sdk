@@ -11,6 +11,9 @@ LaserSell is a professional Solana trade execution API. It builds optimized tran
 - Signs transactions locally (non-custodial — private keys never leave the client)
 - Submits signed transactions to Solana via multiple backends (standard RPC, Helius Sender, Astralane Iris)
 - Supports automated exit strategies: take-profit, stop-loss, trailing stop, deadline timeout, and sell-on-graduation
+- Real time liquidity snapshots with slippage bands (1%, 2%, 5%, 10%) and liquidity trend tracking (growing, stable, draining)
+- Partial sells based on slippage data via `buildPartialSellTx()`
+- Multi-wallet monitoring (up to 5 on Professional, 200 on Advanced)
 - Quote currencies: SOL and USD1
 
 ## Languages
@@ -22,11 +25,12 @@ LaserSell is a professional Solana trade execution API. It builds optimized tran
 
 ## Key concepts
 
-- `ExitApiClient`: HTTP client for building unsigned transactions (buy/sell)
-- `StreamClient` + `StreamSession`: WebSocket client for real-time position monitoring and exit signals
+- `ExitApiClient`: HTTP client for building unsigned transactions (buy/sell/partial sell)
+- `StreamClient` + `StreamSession`: WebSocket client for real-time position monitoring, exit signals, and liquidity snapshots
 - `SendTarget`: Unified transaction submission abstraction (RPC, Helius Sender, Astralane Iris)
 - `signUnsignedTx`: Local transaction signing (non-custodial)
 - `sendTransaction`: Submit signed transactions to Solana
+- `getSlippageBands()`, `getMaxSellAtSlippage()`, `getLiquidityTrend()`: Liquidity snapshot queries on `StreamSession`
 
 ## Typical flow
 
@@ -37,13 +41,28 @@ LaserSell is a professional Solana trade execution API. It builds optimized tran
 
 For automated exits: connect to the stream, receive exit signals with pre-built transactions, sign and submit in milliseconds.
 
+For liquidity-aware selling: query slippage bands to determine optimal sell size, then use `buildPartialSellTx()` to sell exactly what the pool can absorb.
+
 ## Use cases
 
 - Automated exit strategies (take-profit, stop-loss, trailing stop, deadline timeout, sell-on-graduation)
 - One-shot token buys and sells with optimized routing
 - AI agent trading on Solana (the API handles DEX routing and transaction building, agents just call the SDK)
-- Custom trading bots and portfolio management tools
+- Custom trading applications and portfolio management tools
 - Real-time position monitoring across multiple wallets
+- Liquidity-aware selling using real time slippage bands and trend data
+
+## Performance
+
+LaserSell is 2-5x faster than every major Solana trading API at building swap transactions. Open-source benchmarks verified against PumpFun SDK, PumpPortal, and Jupiter Metis API.
+
+- **Buy tx build**: 71ms median (vs 141ms PumpPortal, 168ms Jupiter, 365ms PumpFun SDK)
+- **Sell tx build**: 72ms median (vs 121ms PumpPortal, 175ms Jupiter, 317ms PumpFun SDK)
+- Sub-80ms median across both buy and sell operations
+- Tight variance: ~19-44ms spread between min and max (vs 125ms+ for alternatives)
+- Single HTTP request — no multi-step quote-then-swap flow, no 5+ RPC roundtrips
+
+Benchmarks are open-source and reproducible: https://github.com/lasersell/benchmarks
 
 ## Supported DEXs
 
@@ -56,6 +75,10 @@ Pump.fun, PumpSwap, Raydium (Launchpad, CPMM), Meteora (DBC, DAMM v2), Bags.fm
 - Documentation: https://docs.lasersell.io
 - SDK repo: https://github.com/lasersell/lasersell-sdk
 - CLI repo: https://github.com/lasersell/lasersell
+- Blog: https://www.lasersell.io/blog
+- SDK 0.3 announcement: https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3
+- Benchmark results: https://www.lasersell.io/blog/benchmark-results
+- Open-source benchmarks: https://github.com/lasersell/benchmarks
 - Discord: https://discord.gg/lasersell
 - Twitter: https://x.com/lasersellhq
 
