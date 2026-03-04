@@ -25,7 +25,8 @@ const (
 	StreamEventTypePositionOpened   StreamEventType = "position_opened"
 	StreamEventTypePositionClosed   StreamEventType = "position_closed"
 	StreamEventTypeExitSignalWithTx StreamEventType = "exit_signal_with_tx"
-	StreamEventTypePnlUpdate        StreamEventType = "pnl_update"
+	StreamEventTypePnlUpdate           StreamEventType = "pnl_update"
+	StreamEventTypeLiquiditySnapshot StreamEventType = "liquidity_snapshot"
 )
 
 // StreamEvent maps raw server messages into position-aware events.
@@ -45,6 +46,7 @@ type StreamSession struct {
 	deadlineTimeoutSec uint64
 	openedAt           map[string]time.Time
 	timers             map[string]*time.Timer
+	liquidityCache     map[uint64]LiquiditySnapshotServerMessage
 }
 
 // ConnectSession opens a new stream session and initializes position state.
@@ -82,6 +84,7 @@ func NewSessionFromConnectionWithStrategy(
 		deadlineTimeoutSec: deadlineTimeoutSec,
 		openedAt:           make(map[string]time.Time),
 		timers:             make(map[string]*time.Timer),
+		liquidityCache:     make(map[uint64]LiquiditySnapshotServerMessage),
 	}
 }
 
@@ -258,6 +261,14 @@ func (s *StreamSession) applyMessage(message ServerMessage) StreamEvent {
 		handle := s.findPosition(msg.PositionID, nil)
 		return StreamEvent{
 			Type:    StreamEventTypePnlUpdate,
+			Handle:  cloneHandlePtrFromPtr(handle),
+			Message: message,
+		}
+	case LiquiditySnapshotServerMessage:
+		s.liquidityCache[msg.PositionID] = msg
+		handle := s.findPosition(msg.PositionID, nil)
+		return StreamEvent{
+			Type:    StreamEventTypeLiquiditySnapshot,
 			Handle:  cloneHandlePtrFromPtr(handle),
 			Message: message,
 		}
@@ -438,4 +449,46 @@ func (s *StreamSession) cancelAllTimersLocked() {
 		timer.Stop()
 		delete(s.timers, tokenAccount)
 	}
+}
+
+// GetSlippageBands returns the latest slippage bands for a position, or nil if none.
+func (s *StreamSession) GetSlippageBands(positionID uint64) []SlippageBandMsg {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	snap, ok := s.liquidityCache[positionID]
+	if !ok {
+		return nil
+	}
+	out := make([]SlippageBandMsg, len(snap.Bands))
+	copy(out, snap.Bands)
+	return out
+}
+
+// GetMaxSellAtSlippage returns the max tokens sellable at the given slippage, or nil if not available.
+func (s *StreamSession) GetMaxSellAtSlippage(positionID uint64, slippageBps uint16) *uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	snap, ok := s.liquidityCache[positionID]
+	if !ok {
+		return nil
+	}
+	for _, band := range snap.Bands {
+		if band.SlippageBps == slippageBps {
+			val := band.MaxTokens
+			return &val
+		}
+	}
+	return nil
+}
+
+// GetLiquidityTrend returns the liquidity trend for a position, or nil if not available.
+func (s *StreamSession) GetLiquidityTrend(positionID uint64) *string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	snap, ok := s.liquidityCache[positionID]
+	if !ok {
+		return nil
+	}
+	trend := snap.LiquidityTrend
+	return &trend
 }

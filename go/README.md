@@ -94,6 +94,8 @@ target := lasersell.SendTargetRpc("https://your-private-rpc.example.com")
 - Use `stream.SingleWalletStreamConfigureOptional(...)` / `stream.StrategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, trailing stop, or timeout must be enabled.
 - **Trailing stop**: locks in profits by tracking a high-water mark — when profit drops by the configured percentage of entry cost from its peak, an exit is triggered. Set `TrailingStopPct` in `OptionalStrategyConfig` (e.g. `5.0` = exit if profit drops 5% of entry from peak).
 - Use `session.Sender().UpdateWallets(...)` to add or remove wallets mid-session without reconnecting.
+- **Liquidity snapshots (Tier 1+)**: Professional and Advanced tier subscribers receive real time slippage bands and liquidity trend data ([announcement](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3)). Query via `session.GetSlippageBands(positionID)`, `session.GetMaxSellAtSlippage(positionID, 500)`, and `session.GetLiquidityTrend(positionID)`.
+- **Partial sell**: Use `client.BuildPartialSellTx(ctx, handle, amountTokens, 500, lasersell.SellOutputSOL)` to sell a subset of a position's tokens. Combine with slippage bands for optimal sizing.
 
 ### Trailing stop example
 

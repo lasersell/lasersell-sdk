@@ -84,6 +84,13 @@ pub enum StreamEvent {
         /// Original underlying server message.
         message: ServerMessage,
     },
+    /// Liquidity snapshot with slippage bands for a position.
+    LiquiditySnapshot {
+        /// Resolved position handle if known.
+        handle: Option<PositionHandle>,
+        /// Original underlying server message.
+        message: ServerMessage,
+    },
 }
 
 /// Stateful wrapper around a stream connection.
@@ -91,6 +98,7 @@ pub enum StreamEvent {
 pub struct StreamSession {
     connection: StreamConnection,
     positions: HashMap<u64, PositionHandle>,
+    liquidity_cache: HashMap<u64, ServerMessage>,
     strategy: StrategyConfigMsg,
     deadline_timeout_sec: u64,
     deadline_tasks: HashMap<String, JoinHandle<()>>,
@@ -129,6 +137,7 @@ impl StreamSession {
         Self {
             connection,
             positions: HashMap::new(),
+            liquidity_cache: HashMap::new(),
             strategy,
             deadline_timeout_sec,
             deadline_tasks: HashMap::new(),
@@ -154,6 +163,28 @@ impl StreamSession {
             .filter(|handle| handle.wallet_pubkey == wallet && handle.mint == mint)
             .cloned()
             .collect()
+    }
+
+    /// Returns the latest slippage bands for a position.
+    pub fn get_slippage_bands(&self, position_id: u64) -> Option<&Vec<lasersell_stream_proto::SlippageBandMsg>> {
+        match self.liquidity_cache.get(&position_id) {
+            Some(ServerMessage::LiquiditySnapshot { bands, .. }) => Some(bands),
+            _ => None,
+        }
+    }
+
+    /// Returns the max tokens sellable at a given slippage threshold.
+    pub fn get_max_sell_at_slippage(&self, position_id: u64, slippage_bps: u16) -> Option<u64> {
+        let bands = self.get_slippage_bands(position_id)?;
+        bands.iter().find(|b| b.slippage_bps == slippage_bps).map(|b| b.max_tokens)
+    }
+
+    /// Returns the liquidity trend for a position.
+    pub fn get_liquidity_trend(&self, position_id: u64) -> Option<&str> {
+        match self.liquidity_cache.get(&position_id) {
+            Some(ServerMessage::LiquiditySnapshot { liquidity_trend, .. }) => Some(liquidity_trend.as_str()),
+            _ => None,
+        }
     }
 
     /// Requests close for a tracked position.
@@ -289,6 +320,14 @@ impl StreamSession {
             ServerMessage::PnlUpdate { position_id, .. } => {
                 let handle = self.find_position(*position_id, None);
                 StreamEvent::PnlUpdate { handle, message }
+            }
+            ServerMessage::LiquiditySnapshot { position_id, .. } => {
+                self.liquidity_cache.insert(*position_id, message.clone());
+                let handle = self.find_position(*position_id, None);
+                StreamEvent::LiquiditySnapshot {
+                    handle,
+                    message,
+                }
             }
             _ => StreamEvent::Message(message),
         }

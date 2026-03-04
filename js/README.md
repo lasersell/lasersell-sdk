@@ -139,6 +139,26 @@ await session.sender().updateWallets(["WALLET_1_PUBKEY", "WALLET_2_PUBKEY"]);
 
 The server diffs the new list against the current set and registers/unregisters accordingly.
 
+### Liquidity snapshots (Tier 1+)
+
+Professional and Advanced tier subscribers receive real time [liquidity snapshots](https://docs.lasersell.io/api/stream/server-events#liquidity_snapshot) alongside PnL updates. Each snapshot contains slippage bands and a liquidity trend indicator. See the [full announcement](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3). `StreamSession` caches the latest snapshot per position:
+
+```ts
+const bands = session.getSlippageBands(positionId);
+const maxTokens = session.getMaxSellAtSlippage(positionId, 500); // 5% slippage
+const trend = session.getLiquidityTrend(positionId); // "growing" | "stable" | "draining"
+```
+
+### Partial sell
+
+Build a sell transaction for a subset of a position's tokens using the `PositionHandle` from any `StreamEvent`:
+
+```ts
+const response = await client.buildPartialSellTx(handle, amountTokens, 500, "SOL");
+```
+
+Combine with slippage bands to sell the maximum amount within your desired price impact.
+
 ## RPC endpoint
 
 The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:

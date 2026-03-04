@@ -14,7 +14,7 @@ from .client import (
     _validate_strategy_and_deadline,
     strategy_config_from_optional,
 )
-from .proto import ServerMessage, StrategyConfigMsg
+from .proto import LiquiditySnapshotServerMessage, ServerMessage, SlippageBandMsg, StrategyConfigMsg
 
 
 @dataclass(slots=True)
@@ -54,6 +54,7 @@ class StreamSession:
         self._deadline_timeout_sec = max(0, int(deadline_timeout_sec))
         self._opened_at: dict[str, float] = {}
         self._deadline_tasks: dict[str, asyncio.Task[None]] = {}
+        self._liquidity_cache: dict[int, LiquiditySnapshotServerMessage] = {}
 
     @classmethod
     async def connect(
@@ -143,6 +144,30 @@ class StreamSession:
             deadline_timeout_sec=deadline_timeout_sec,
         )
 
+    def get_slippage_bands(self, position_id: int) -> list[SlippageBandMsg] | None:
+        """Returns the latest slippage bands for a position, or None."""
+        snap = self._liquidity_cache.get(position_id)
+        if snap is None:
+            return None
+        return snap["bands"]
+
+    def get_max_sell_at_slippage(self, position_id: int, slippage_bps: int) -> int | None:
+        """Returns the max tokens sellable at the given slippage, or None."""
+        bands = self.get_slippage_bands(position_id)
+        if bands is None:
+            return None
+        for band in bands:
+            if band["slippage_bps"] == slippage_bps:
+                return band["max_tokens"]
+        return None
+
+    def get_liquidity_trend(self, position_id: int) -> str | None:
+        """Returns the liquidity trend for a position, or None."""
+        snap = self._liquidity_cache.get(position_id)
+        if snap is None:
+            return None
+        return snap["liquidity_trend"]
+
     async def recv(self) -> StreamEvent | None:
         message = await self._connection.recv()
         if message is None:
@@ -187,6 +212,12 @@ class StreamSession:
         if message_type == "pnl_update":
             handle = self._find_position(int(message["position_id"]))
             return StreamEvent(type="pnl_update", handle=handle, message=message)
+
+        if message_type == "liquidity_snapshot":
+            position_id = int(message["position_id"])
+            self._liquidity_cache[position_id] = message  # type: ignore[assignment]
+            handle = self._find_position(position_id)
+            return StreamEvent(type="liquidity_snapshot", handle=handle, message=message)
 
         return StreamEvent(type="message", message=message)
 

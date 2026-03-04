@@ -39,6 +39,7 @@
 - **One-shot sells and buys** — build, sign, and submit a single transaction through the [LaserSell API](https://docs.lasersell.io/api/exit-api/sell) with optimized routing and slippage.
 - **Custom trading bots** — combine the stream, retry, and [transaction modules](https://docs.lasersell.io/api/transactions/signing) to build production trading infrastructure.
 - **Portfolio management tools** — monitor positions, track PnL, and execute exits programmatically across multiple wallets.
+- **Liquidity aware selling** — query real time slippage bands and liquidity trends to size sells optimally. Use `buildPartialSellTx()` to sell a portion of a position based on slippage data.
 
 ## Install
 
@@ -175,6 +176,31 @@ await session.sender().updateWallets(["WALLET_1", "WALLET_2"]);
 
 The server diffs the new list against the current set and registers/unregisters accordingly. Positions on removed wallets continue to be tracked until they close.
 
+### Liquidity snapshots (Tier 1+)
+
+Professional and Advanced tier subscribers receive real time [liquidity snapshots](https://docs.lasersell.io/api/stream/server-events#liquidity_snapshot) alongside PnL updates. Each snapshot contains slippage bands (how many tokens are sellable at each slippage threshold) and a liquidity trend indicator (`"growing"`, `"stable"`, or `"draining"`). See the [full announcement](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) for details.
+
+`StreamSession` caches the latest snapshot per position. Query it with:
+
+```ts
+const bands = session.getSlippageBands(positionId);
+const maxTokens = session.getMaxSellAtSlippage(positionId, 500); // 5% slippage
+const trend = session.getLiquidityTrend(positionId);
+```
+
+### Partial sell
+
+Use `buildPartialSellTx()` to sell a subset of a position's tokens. This pairs well with slippage bands: query the maximum sellable amount at your desired slippage, then build a transaction for exactly that amount.
+
+```ts
+const maxTokens = session.getMaxSellAtSlippage(positionId, 500);
+if (maxTokens !== undefined) {
+  const response = await client.buildPartialSellTx(handle, maxTokens, 500, "SOL");
+}
+```
+
+The method accepts a `PositionHandle` (available on every `StreamEvent`), the token amount, slippage in bps, and the output asset.
+
 ## RPC endpoint
 
 Every SDK ships with the Solana public mainnet-beta RPC (`https://api.mainnet-beta.solana.com`) as a built-in default so you can get started without configuring an RPC provider:
@@ -238,6 +264,7 @@ Full API and SDK documentation is available at **[docs.lasersell.io/api](https:/
 | Documentation | [docs.lasersell.io](https://docs.lasersell.io) |
 | Blog | [lasersell.io/blog](https://www.lasersell.io/blog) |
 | Benchmarks | [2-5x faster than every major Solana trading API](https://www.lasersell.io/blog/benchmark-results) |
+| SDK 0.3 release | [Liquidity Snapshots, Slippage Bands, and SDK 0.3](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) |
 | LaserSell CLI (open source) | [github.com/lasersell/lasersell](https://github.com/lasersell/lasersell) |
 | SDKs (this repo) | [github.com/lasersell/lasersell-sdk](https://github.com/lasersell/lasersell-sdk) |
 | Discord | [discord.gg/lasersell](https://discord.gg/lasersell) |

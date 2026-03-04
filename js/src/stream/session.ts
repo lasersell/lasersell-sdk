@@ -8,7 +8,12 @@ import {
   strategyConfigFromOptional,
   validateStrategyAndDeadline,
 } from "./client.js";
-import type { ServerMessage, StrategyConfigMsg } from "./proto.js";
+import type {
+  LiquiditySnapshotServerMessage,
+  ServerMessage,
+  SlippageBandMsg,
+  StrategyConfigMsg,
+} from "./proto.js";
 
 export interface PositionHandle {
   position_id: number;
@@ -44,6 +49,11 @@ export type StreamEvent =
       type: "pnl_update";
       handle?: PositionHandle;
       message: ServerMessage;
+    }
+  | {
+      type: "liquidity_snapshot";
+      handle?: PositionHandle;
+      message: ServerMessage;
     };
 
 export class StreamSession {
@@ -53,6 +63,7 @@ export class StreamSession {
   private deadlineTimeoutSec: number;
   private readonly deadlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly openedAtMs = new Map<string, number>();
+  private readonly liquidityCache = new Map<number, LiquiditySnapshotServerMessage>();
 
   private constructor(
     connection: StreamConnection,
@@ -137,6 +148,20 @@ export class StreamSession {
     );
   }
 
+  getSlippageBands(positionId: number): SlippageBandMsg[] | undefined {
+    return this.liquidityCache.get(positionId)?.bands;
+  }
+
+  getMaxSellAtSlippage(positionId: number, slippageBps: number): number | undefined {
+    const bands = this.getSlippageBands(positionId);
+    if (bands === undefined) return undefined;
+    return bands.find((b) => b.slippage_bps === slippageBps)?.max_tokens;
+  }
+
+  getLiquidityTrend(positionId: number): string | undefined {
+    return this.liquidityCache.get(positionId)?.liquidity_trend;
+  }
+
   async recv(): Promise<StreamEvent | null> {
     const message = await this.connection.recv();
     if (message === null) {
@@ -198,6 +223,16 @@ export class StreamSession {
 
         return {
           type: "pnl_update",
+          handle: handle === undefined ? undefined : { ...handle },
+          message,
+        };
+      }
+      case "liquidity_snapshot": {
+        this.liquidityCache.set(message.position_id, message);
+        const handle = this.findPosition(message.position_id);
+
+        return {
+          type: "liquidity_snapshot",
           handle: handle === undefined ? undefined : { ...handle },
           message,
         };

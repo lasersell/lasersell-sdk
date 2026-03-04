@@ -12,6 +12,7 @@ from urllib import request as urllib_request
 
 from .retry import RetryPolicy, retry_async
 from .stream.proto import MarketContextMsg
+from .stream.session import PositionHandle
 
 ERROR_BODY_SNIPPET_LEN = 220
 
@@ -252,6 +253,25 @@ class ExitApiClient:
         """Builds an unsigned sell transaction."""
 
         return await self._build_tx("/v1/sell", request.to_payload())
+
+    async def build_partial_sell_tx(
+        self,
+        handle: PositionHandle,
+        amount_tokens: int,
+        slippage_bps: int,
+        output: SellOutput | str = SellOutput.SOL,
+    ) -> BuildTxResponse:
+        """Builds a sell transaction for a subset of a position's tokens."""
+
+        return await self.build_sell_tx(
+            BuildSellTxRequest(
+                mint=handle.mint,
+                user_pubkey=handle.wallet_pubkey,
+                amount_tokens=amount_tokens,
+                output=output,
+                slippage_bps=slippage_bps,
+            )
+        )
 
     async def build_sell_tx_b64(self, request: BuildSellTxRequest) -> str:
         """Builds an unsigned sell transaction and returns only base64 tx data."""

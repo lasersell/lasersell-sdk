@@ -234,6 +234,27 @@ func (c *ExitAPIClient) BuildSellTx(
 	return c.buildTx(ctx, "/v1/sell", request)
 }
 
+// BuildPartialSellTx builds a sell transaction for a subset of a position's tokens.
+func (c *ExitAPIClient) BuildPartialSellTx(
+	ctx context.Context,
+	handle stream.PositionHandle,
+	amountTokens uint64,
+	slippageBps uint16,
+	output *SellOutput,
+) (BuildTxResponse, error) {
+	resolvedOutput := SellOutputSOL
+	if output != nil {
+		resolvedOutput = *output
+	}
+	return c.BuildSellTx(ctx, BuildSellTxRequest{
+		Mint:         handle.Mint,
+		UserPubkey:   handle.WalletPubkey,
+		AmountTokens: amountTokens,
+		Output:       resolvedOutput,
+		SlippageBps:  slippageBps,
+	})
+}
+
 // BuildSellTxB64 builds an unsigned sell transaction and returns only base64 payload.
 func (c *ExitAPIClient) BuildSellTxB64(
 	ctx context.Context,

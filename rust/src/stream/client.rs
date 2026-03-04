@@ -759,6 +759,7 @@ fn server_msg_label(msg: &ServerMessage) -> &'static str {
         ServerMessage::PositionClosed { .. } => "position_closed",
         ServerMessage::ExitSignalWithTx { .. } => "exit_signal_with_tx",
         ServerMessage::PnlUpdate { .. } => "pnl_update",
+        ServerMessage::LiquiditySnapshot { .. } => "liquidity_snapshot",
         ServerMessage::Pong { .. } => "pong",
         ServerMessage::Error { .. } => "error",
     }

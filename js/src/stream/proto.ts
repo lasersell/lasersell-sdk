@@ -132,6 +132,20 @@ export interface PnlUpdateServerMessage {
   server_time_ms: number;
 }
 
+export interface SlippageBandMsg {
+  slippage_bps: number;
+  max_tokens: number;
+  coverage_pct: number;
+}
+
+export interface LiquiditySnapshotServerMessage {
+  type: "liquidity_snapshot";
+  position_id: number;
+  bands: SlippageBandMsg[];
+  liquidity_trend: string;
+  server_time_ms: number;
+}
+
 export interface BalanceUpdateServerMessage {
   type: "balance_update";
   wallet_pubkey: string;
@@ -186,6 +200,7 @@ export type ServerMessage =
   | PongServerMessage
   | ErrorServerMessage
   | PnlUpdateServerMessage
+  | LiquiditySnapshotServerMessage
   | BalanceUpdateServerMessage
   | PositionOpenedServerMessage
   | PositionClosedServerMessage
@@ -313,6 +328,29 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
         profit_units: asNumber(obj.profit_units, "pnl_update.profit_units"),
         proceeds_units: asNumber(obj.proceeds_units, "pnl_update.proceeds_units"),
         server_time_ms: asNumber(obj.server_time_ms, "pnl_update.server_time_ms"),
+      };
+    }
+    case "liquidity_snapshot": {
+      const rawBands = obj.bands;
+      if (!Array.isArray(rawBands)) {
+        throw new Error("liquidity_snapshot.bands must be an array");
+      }
+      const bands: SlippageBandMsg[] = rawBands.map(
+        (item: unknown, idx: number) => {
+          const band = asRecord(item, `liquidity_snapshot.bands[${idx}]`);
+          return {
+            slippage_bps: asNumber(band.slippage_bps, `liquidity_snapshot.bands[${idx}].slippage_bps`),
+            max_tokens: asNumber(band.max_tokens, `liquidity_snapshot.bands[${idx}].max_tokens`),
+            coverage_pct: asNumber(band.coverage_pct, `liquidity_snapshot.bands[${idx}].coverage_pct`),
+          };
+        },
+      );
+      return {
+        type: "liquidity_snapshot",
+        position_id: asNumber(obj.position_id, "liquidity_snapshot.position_id"),
+        bands,
+        liquidity_trend: asString(obj.liquidity_trend, "liquidity_snapshot.liquidity_trend"),
+        server_time_ms: asNumber(obj.server_time_ms, "liquidity_snapshot.server_time_ms"),
       };
     }
     case "balance_update": {

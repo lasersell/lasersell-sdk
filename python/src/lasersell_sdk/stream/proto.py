@@ -146,6 +146,20 @@ class PnlUpdateServerMessage(TypedDict):
     server_time_ms: int
 
 
+class SlippageBandMsg(TypedDict):
+    slippage_bps: int
+    max_tokens: int
+    coverage_pct: float
+
+
+class LiquiditySnapshotServerMessage(TypedDict):
+    type: Literal["liquidity_snapshot"]
+    position_id: int
+    bands: list[SlippageBandMsg]
+    liquidity_trend: str
+    server_time_ms: int
+
+
 class BalanceUpdateServerMessage(TypedDict, total=False):
     type: Required[Literal["balance_update"]]
     wallet_pubkey: Required[str]
@@ -200,6 +214,7 @@ ServerMessage = (
     | PongServerMessage
     | ErrorServerMessage
     | PnlUpdateServerMessage
+    | LiquiditySnapshotServerMessage
     | BalanceUpdateServerMessage
     | PositionOpenedServerMessage
     | PositionClosedServerMessage
@@ -339,6 +354,26 @@ def server_message_from_obj(value: object) -> ServerMessage:
             "profit_units": _as_int(obj.get("profit_units"), "pnl_update.profit_units"),
             "proceeds_units": _as_int(obj.get("proceeds_units"), "pnl_update.proceeds_units"),
             "server_time_ms": _as_int(obj.get("server_time_ms"), "pnl_update.server_time_ms"),
+        }
+
+    if message_type == "liquidity_snapshot":
+        raw_bands = obj.get("bands")
+        if not isinstance(raw_bands, list):
+            raise ValueError("liquidity_snapshot.bands must be an array")
+        bands: list[SlippageBandMsg] = []
+        for idx, item in enumerate(raw_bands):
+            band_obj = _as_record(item, f"liquidity_snapshot.bands[{idx}]")
+            bands.append({
+                "slippage_bps": _as_int(band_obj.get("slippage_bps"), f"liquidity_snapshot.bands[{idx}].slippage_bps"),
+                "max_tokens": _as_int(band_obj.get("max_tokens"), f"liquidity_snapshot.bands[{idx}].max_tokens"),
+                "coverage_pct": _as_float(band_obj.get("coverage_pct"), f"liquidity_snapshot.bands[{idx}].coverage_pct"),
+            })
+        return {
+            "type": "liquidity_snapshot",
+            "position_id": _as_int(obj.get("position_id"), "liquidity_snapshot.position_id"),
+            "bands": bands,
+            "liquidity_trend": _as_string(obj.get("liquidity_trend"), "liquidity_snapshot.liquidity_trend"),
+            "server_time_ms": _as_int(obj.get("server_time_ms"), "liquidity_snapshot.server_time_ms"),
         }
 
     if message_type == "balance_update":
@@ -720,6 +755,7 @@ __all__ = [
     "ExitSignalWithTxServerMessage",
     "HelloOkServerMessage",
     "LimitsMsg",
+    "LiquiditySnapshotServerMessage",
     "MarketContextMsg",
     "MarketTypeMsg",
     "PnlUpdateServerMessage",
@@ -727,6 +763,7 @@ __all__ = [
     "PositionOpenedServerMessage",
     "RequestExitSignalClientMessage",
     "ServerMessage",
+    "SlippageBandMsg",
     "StrategyConfigMsg",
     "UpdateStrategyClientMessage",
     "UpdateWalletsClientMessage",

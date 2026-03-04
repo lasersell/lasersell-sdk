@@ -4,6 +4,7 @@ import {
   type RetryPolicy,
 } from "./retry.js";
 import type { MarketContextMsg } from "./stream/proto.js";
+import type { PositionHandle } from "./stream/session.js";
 
 const ERROR_BODY_SNIPPET_LEN = 220;
 
@@ -216,6 +217,20 @@ export class ExitApiClient {
 
   async buildSellTx(request: BuildSellTxRequest): Promise<BuildTxResponse> {
     return await this.buildTx("/v1/sell", request);
+  }
+
+  async buildPartialSellTx(
+    handle: PositionHandle,
+    amountTokens: number,
+    opts: { slippageBps: number; output?: SellOutput },
+  ): Promise<BuildTxResponse> {
+    return await this.buildSellTx({
+      mint: handle.mint,
+      user_pubkey: handle.wallet_pubkey,
+      amount_tokens: amountTokens,
+      output: opts.output ?? "SOL",
+      slippage_bps: opts.slippageBps,
+    });
   }
 
   async buildSellTxB64(request: BuildSellTxRequest): Promise<string> {

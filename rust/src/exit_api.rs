@@ -134,6 +134,30 @@ impl ExitApiClient {
         self.build_tx("/v1/sell", request).await
     }
 
+    /// Builds a sell transaction for a subset of a position's tokens.
+    pub async fn build_partial_sell_tx(
+        &self,
+        handle: &crate::stream::session::PositionHandle,
+        amount_tokens: u64,
+        slippage_bps: u16,
+        output: Option<SellOutput>,
+    ) -> Result<BuildTxResponse, ExitApiError> {
+        self.build_sell_tx(&BuildSellTxRequest {
+            mint: handle.mint.clone(),
+            user_pubkey: handle.wallet_pubkey.clone(),
+            amount_tokens,
+            output: output.unwrap_or(SellOutput::Sol),
+            slippage_bps,
+            mode: None,
+            market_context: None,
+            send_mode: None,
+            tip_lamports: None,
+            partner_fee_recipient: None,
+            partner_fee_bps: None,
+            partner_fee_lamports: None,
+        }).await
+    }
+
     /// Builds an unsigned sell transaction and returns only base64 transaction
     /// data.
     pub async fn build_sell_tx_b64(

@@ -178,7 +178,8 @@ const (
 	ServerMessageTypeBalanceUpdate    ServerMessageType = "balance_update"
 	ServerMessageTypePositionOpened   ServerMessageType = "position_opened"
 	ServerMessageTypePositionClosed   ServerMessageType = "position_closed"
-	ServerMessageTypeExitSignalWithTx ServerMessageType = "exit_signal_with_tx"
+	ServerMessageTypeExitSignalWithTx    ServerMessageType = "exit_signal_with_tx"
+	ServerMessageTypeLiquiditySnapshot ServerMessageType = "liquidity_snapshot"
 )
 
 // ServerMessage is a tagged stream event payload.
@@ -285,6 +286,25 @@ type ExitSignalWithTxServerMessage struct {
 
 func (ExitSignalWithTxServerMessage) ServerMessageType() ServerMessageType {
 	return ServerMessageTypeExitSignalWithTx
+}
+
+// SlippageBandMsg describes the maximum sellable amount at a given slippage threshold.
+type SlippageBandMsg struct {
+	SlippageBps uint16  `json:"slippage_bps"`
+	MaxTokens   uint64  `json:"max_tokens"`
+	CoveragePct float64 `json:"coverage_pct"`
+}
+
+// LiquiditySnapshotServerMessage carries slippage band data for a position.
+type LiquiditySnapshotServerMessage struct {
+	PositionID     uint64            `json:"position_id"`
+	Bands          []SlippageBandMsg `json:"bands"`
+	LiquidityTrend string            `json:"liquidity_trend"`
+	ServerTimeMS   uint64            `json:"server_time_ms"`
+}
+
+func (LiquiditySnapshotServerMessage) ServerMessageType() ServerMessageType {
+	return ServerMessageTypeLiquiditySnapshot
 }
 
 // ClientMessageFromText decodes a client message JSON string.
@@ -523,6 +543,12 @@ func ServerMessageFromJSON(data []byte) (ServerMessage, error) {
 			return nil, fmt.Errorf("decode exit_signal_with_tx server message: %w", err)
 		}
 		return msg, nil
+	case string(ServerMessageTypeLiquiditySnapshot):
+		var msg LiquiditySnapshotServerMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("decode liquidity_snapshot: %w", err)
+		}
+		return msg, nil
 	default:
 		return nil, fmt.Errorf("unsupported server message type: %s", envelope.Type)
 	}
@@ -610,6 +636,13 @@ func ServerMessageToJSON(message ServerMessage) ([]byte, error) {
 		if msg == nil {
 			return nil, fmt.Errorf("server message cannot be nil")
 		}
+		return ServerMessageToJSON(*msg)
+	case LiquiditySnapshotServerMessage:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			LiquiditySnapshotServerMessage
+		}{Type: string(ServerMessageTypeLiquiditySnapshot), LiquiditySnapshotServerMessage: msg})
+	case *LiquiditySnapshotServerMessage:
 		return ServerMessageToJSON(*msg)
 	default:
 		return nil, fmt.Errorf("unsupported server message type %T", message)
