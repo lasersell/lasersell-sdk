@@ -60,6 +60,8 @@ let configure = StreamConfigure {
     wallet_pubkeys: vec!["REPLACE_WITH_WALLET_PUBKEY".to_string()],
     strategy: strategy_config_from_optional(None, None, None, None),
     deadline_timeout_sec: 45,
+    send_mode: Some("helius_sender".to_string()),
+    tip_lamports: Some(1000),
 };
 
 let mut session = StreamSession::connect(&client, configure).await?;

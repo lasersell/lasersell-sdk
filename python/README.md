@@ -78,7 +78,8 @@ from solders.keypair import Keypair
 
 from lasersell_sdk.stream.client import (
     StreamClient,
-    single_wallet_stream_configure_optional,
+    StreamConfigure,
+    strategy_config_from_optional,
 )
 from lasersell_sdk.stream.session import StreamSession
 from lasersell_sdk.tx import SendTargetHeliusSender, send_transaction, sign_unsigned_tx
@@ -89,9 +90,15 @@ async def main() -> None:
     client = StreamClient("REPLACE_WITH_API_KEY")
     session = await StreamSession.connect(
         client,
-        single_wallet_stream_configure_optional(
-            "REPLACE_WITH_WALLET_PUBKEY",
-            deadline_timeout_sec=45,  # timeout-only strategy is valid
+        StreamConfigure(
+            wallet_pubkeys=["REPLACE_WITH_WALLET_PUBKEY"],
+            strategy=strategy_config_from_optional(
+                target_profit_pct=50.0,
+                stop_loss_pct=10.0,
+            ),
+            deadline_timeout_sec=45,
+            send_mode="helius_sender",
+            tip_lamports=1000,
         ),
     )
 

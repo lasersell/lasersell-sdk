@@ -77,11 +77,15 @@ import { Keypair } from "@solana/web3.js";
 const client = new StreamClient("REPLACE_WITH_API_KEY");
 const session = await StreamSession.connect(
   client,
-  singleWalletStreamConfigureOptional(
-    "REPLACE_WITH_WALLET_PUBKEY",
-    {},
-    45, // timeout-only strategy is valid
-  ),
+  {
+    ...singleWalletStreamConfigureOptional(
+      "REPLACE_WITH_WALLET_PUBKEY",
+      {},
+      45, // timeout-only strategy is valid
+    ),
+    send_mode: "helius_sender",
+    tip_lamports: 1000,
+  },
 );
 
 const signer = Keypair.generate();

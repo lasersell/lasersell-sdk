@@ -43,6 +43,8 @@ async def main() -> None:
                 "stop_loss_pct": 1.5,
             },
             deadline_timeout_sec=45,
+            send_mode="helius_sender",
+            tip_lamports=1000,
         ),
     )
 

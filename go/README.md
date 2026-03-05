@@ -91,6 +91,7 @@ target := lasersell.SendTargetRpc("https://your-private-rpc.example.com")
 - Use `context.Context` on all network operations to control cancellation/timeouts.
 - API parser supports current and legacy response envelopes.
 - Stream client includes reconnect handling and sender/session utilities.
+- `StreamConfigure.SendMode` and `StreamConfigure.TipLamports` are optional pointers that control how the server optimizes and prices exit transactions. Values for `SendMode`: `"rpc"`, `"helius_sender"`, `"astralane"`. Default tip: 1000 lamports.
 - `StreamConfigure.DeadlineTimeoutSec` is enforced client-side by `stream.StreamSession` timers and is not part of wire strategy.
 - Use `session.UpdateStrategy(...)` (instead of sender-only updates) when changing strategy so local deadline timers stay synchronized. Pass optional `deadlineTimeoutSec` if you want to change local deadline timing.
 - Use `stream.SingleWalletStreamConfigureOptional(...)` / `stream.StrategyConfigFromOptional(...)` to omit TP/SL fields; at least one of take profit, stop loss, trailing stop, or timeout must be enabled.

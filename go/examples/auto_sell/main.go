@@ -43,6 +43,8 @@ func main() {
 	}
 
 	client := stream.NewStreamClient(apiKey)
+	sendMode := "helius_sender"
+	tipLamports := uint64(1000)
 	session, err := stream.ConnectSession(ctx, client, stream.StreamConfigure{
 		WalletPubkeys: walletPubkeys,
 		Strategy: stream.StrategyConfigMsg{
@@ -50,6 +52,8 @@ func main() {
 			StopLossPct:     1.5,
 		},
 		DeadlineTimeoutSec: 45,
+		SendMode:           &sendMode,
+		TipLamports:        &tipLamports,
 	})
 	if err != nil {
 		log.Fatalf("connect stream: %v", err)
