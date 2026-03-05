@@ -73,6 +73,8 @@ export interface ConfigureClientMessage {
   type: "configure";
   wallet_pubkeys: string[];
   strategy: StrategyConfigMsg;
+  send_mode?: string;
+  tip_lamports?: number;
 }
 
 export interface UpdateStrategyClientMessage {
@@ -229,11 +231,20 @@ export function clientMessageFromUnknown(value: unknown): ClientMessage {
     }
     case "configure": {
       const wallet_pubkeys = parseWalletPubkeys(obj);
-      return {
+      const msg: ConfigureClientMessage = {
         type: "configure",
         wallet_pubkeys,
         strategy: parseStrategyConfig(obj.strategy),
       };
+      const send_mode = optionalString(obj.send_mode, "configure.send_mode");
+      if (send_mode !== undefined) {
+        msg.send_mode = send_mode;
+      }
+      const tip_lamports = optionalNumber(obj.tip_lamports, "configure.tip_lamports");
+      if (tip_lamports !== undefined) {
+        msg.tip_lamports = tip_lamports;
+      }
+      return msg;
     }
     case "update_strategy": {
       return {

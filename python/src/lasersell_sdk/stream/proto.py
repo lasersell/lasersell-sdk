@@ -81,10 +81,12 @@ class PingClientMessage(TypedDict):
     client_time_ms: int
 
 
-class ConfigureClientMessage(TypedDict):
-    type: Literal["configure"]
-    wallet_pubkeys: list[str]
-    strategy: StrategyConfigMsg
+class ConfigureClientMessage(TypedDict, total=False):
+    type: Required[Literal["configure"]]
+    wallet_pubkeys: Required[list[str]]
+    strategy: Required[StrategyConfigMsg]
+    send_mode: NotRequired[str]
+    tip_lamports: NotRequired[int]
 
 
 class UpdateStrategyClientMessage(TypedDict):
@@ -245,11 +247,14 @@ def client_message_from_obj(value: object) -> ClientMessage:
         }
 
     if message_type == "configure":
-        return {
+        message = cast(ConfigureClientMessage, {
             "type": "configure",
             "wallet_pubkeys": _parse_wallet_pubkeys(obj),
             "strategy": _parse_strategy_config(obj.get("strategy")),
-        }
+        })
+        _set_optional_str(message, "send_mode", obj.get("send_mode"), "configure.send_mode")
+        _set_optional_int(message, "tip_lamports", obj.get("tip_lamports"), "configure.tip_lamports")
+        return message
 
     if message_type == "update_strategy":
         return {

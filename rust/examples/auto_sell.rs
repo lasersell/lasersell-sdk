@@ -64,6 +64,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         wallet_pubkeys,
         strategy: strategy_config_from_optional(None, None, None, None),
         deadline_timeout_sec: 45,
+        send_mode: None,
+        tip_lamports: None,
     };
 
     let keypair = read_keypair_file(keypair_path)?;

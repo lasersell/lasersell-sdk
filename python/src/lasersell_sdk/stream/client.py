@@ -35,6 +35,8 @@ class StreamConfigure:
     wallet_pubkeys: list[str]
     strategy: StrategyConfigMsg
     deadline_timeout_sec: int = 0
+    send_mode: str | None = None
+    tip_lamports: int | None = None
 
 
 class OptionalStrategyConfig(TypedDict, total=False):
@@ -336,6 +338,10 @@ class StreamConnectionWorker:
                 "wallet_pubkeys": list(self._configure.wallet_pubkeys),
                 "strategy": dict(self._configure.strategy),
             }
+            if self._configure.send_mode is not None:
+                configure_message["send_mode"] = self._configure.send_mode
+            if self._configure.tip_lamports is not None:
+                configure_message["tip_lamports"] = self._configure.tip_lamports
             await _send_client_message(socket, configure_message)
 
             configured_message = await _recv_server_message_after_configure(socket)
@@ -381,7 +387,8 @@ class StreamConnectionWorker:
                     try:
                         parsed = server_message_from_text(frame)
                     except ValueError:
-                        return "reconnect"
+                        # Skip unparseable server messages instead of reconnecting.
+                        continue
 
                     self._inbound.push(parsed)
                     continue

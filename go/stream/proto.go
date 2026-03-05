@@ -122,6 +122,8 @@ func (PingClientMessage) ClientMessageType() ClientMessageType { return ClientMe
 type ConfigureClientMessage struct {
 	WalletPubkeys []string          `json:"wallet_pubkeys"`
 	Strategy      StrategyConfigMsg `json:"strategy"`
+	SendMode      *string           `json:"send_mode,omitempty"`
+	TipLamports   *uint64           `json:"tip_lamports,omitempty"`
 }
 
 func (ConfigureClientMessage) ClientMessageType() ClientMessageType {
@@ -383,10 +385,25 @@ func decodeConfigureClientMessage(data []byte) (ClientMessage, error) {
 		return nil, err
 	}
 
-	return ConfigureClientMessage{
+	msg := ConfigureClientMessage{
 		WalletPubkeys: walletPubkeys,
 		Strategy:      strategy,
-	}, nil
+	}
+
+	if sendModeRaw, ok := raw["send_mode"]; ok {
+		var sendMode string
+		if err := json.Unmarshal(sendModeRaw, &sendMode); err == nil {
+			msg.SendMode = &sendMode
+		}
+	}
+	if tipRaw, ok := raw["tip_lamports"]; ok {
+		var tipLamports uint64
+		if err := json.Unmarshal(tipRaw, &tipLamports); err == nil {
+			msg.TipLamports = &tipLamports
+		}
+	}
+
+	return msg, nil
 }
 
 func decodeWalletPubkeys(raw json.RawMessage) ([]string, error) {

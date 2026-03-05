@@ -4,6 +4,7 @@ import {
   clientMessageToText,
   serverMessageFromText,
   type ClientMessage,
+  type ConfigureClientMessage,
   type ServerMessage,
   type StrategyConfigMsg,
 } from "./proto.js";
@@ -19,6 +20,8 @@ export interface StreamConfigure {
   wallet_pubkeys: string[];
   strategy: StrategyConfigMsg;
   deadline_timeout_sec?: number;
+  send_mode?: string;
+  tip_lamports?: number;
 }
 
 export interface OptionalStrategyConfig {
@@ -661,11 +664,17 @@ class StreamConnectionWorker {
       }
       this.pushInbound(firstServerMessage);
 
-      const configureMessage: ClientMessage = {
+      const configureMessage: ConfigureClientMessage = {
         type: "configure",
         wallet_pubkeys: [...this.configure.wallet_pubkeys],
         strategy: { ...this.configure.strategy },
       };
+      if (this.configure.send_mode !== undefined) {
+        configureMessage.send_mode = this.configure.send_mode;
+      }
+      if (this.configure.tip_lamports !== undefined) {
+        configureMessage.tip_lamports = this.configure.tip_lamports;
+      }
       await sendClientMessage(socket, configureMessage);
 
       const configuredMessage = await recvServerMessageAfterConfigure(socket, frames);
@@ -775,7 +784,8 @@ class StreamConnectionWorker {
         try {
           parsed = serverMessageFromText(frame.text);
         } catch {
-          return "reconnect";
+          // Skip unparseable server messages instead of reconnecting.
+          return "continue";
         }
         this.pushInbound(parsed);
         return "continue";

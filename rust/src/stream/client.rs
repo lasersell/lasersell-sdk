@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg};
 
@@ -128,6 +128,10 @@ pub struct StreamConfigure {
     /// This is enforced by `StreamSession` and is not sent to the stream
     /// server.
     pub deadline_timeout_sec: u64,
+    /// How the client will submit the signed transaction (e.g. "helius_sender", "rpc", "astralane").
+    pub send_mode: Option<String>,
+    /// Priority fee tip in lamports (required for some send modes).
+    pub tip_lamports: Option<u64>,
 }
 
 impl StreamConfigure {
@@ -137,6 +141,8 @@ impl StreamConfigure {
             wallet_pubkeys: vec![wallet_pubkey.into()],
             strategy,
             deadline_timeout_sec: 0,
+            send_mode: None,
+            tip_lamports: None,
         }
     }
 
@@ -154,6 +160,8 @@ impl StreamConfigure {
             wallet_pubkeys: vec![wallet_pubkey.into()],
             strategy: strategy_config_from_optional(target_profit_pct, stop_loss_pct, None, None),
             deadline_timeout_sec: deadline_timeout_sec.unwrap_or(0),
+            send_mode: None,
+            tip_lamports: None,
         }
     }
 }
@@ -598,6 +606,8 @@ async fn run_connected_session(
     let configure_msg = ClientMessage::Configure {
         wallet_pubkeys: configure.wallet_pubkeys.clone(),
         strategy: configure.strategy.clone(),
+        send_mode: configure.send_mode.clone(),
+        tip_lamports: configure.tip_lamports,
     };
     send_client_message(&mut socket, &configure_msg).await?;
     debug!(event = "stream_configure_sent");
@@ -645,14 +655,19 @@ async fn run_connected_session(
             maybe_inbound = socket.next() => {
                 match maybe_inbound {
                     Some(Ok(Message::Text(text))) => {
+                        trace!(event = "stream_raw_message", raw = %text);
                         match parse_server_message(&text) {
                             Ok(server_msg) => {
                                 debug!(event = "stream_server_msg", msg_type = server_msg_label(&server_msg));
                                 let _ = inbound_tx.send(server_msg);
                             }
-                            Err(_) => {
-                                warn!(event = "stream_msg_parse_error");
-                                return Ok(SessionOutcome::Reconnect);
+                            Err(err) => {
+                                warn!(
+                                    event = "stream_msg_parse_error",
+                                    error = %err,
+                                    raw_message = %text,
+                                    "skipping unparseable server message"
+                                );
                             }
                         }
                     }

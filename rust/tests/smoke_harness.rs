@@ -78,6 +78,8 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
             wallet_pubkeys: vec![TEST_WALLET.to_string()],
             strategy: expected_strategy,
             deadline_timeout_sec: 45,
+            send_mode: None,
+            tip_lamports: None,
         })
         .await
         .expect("connect stream client to mock ws server");
@@ -259,6 +261,7 @@ async fn run_ws_protocol(
         ClientMessage::Configure {
             strategy,
             wallet_pubkeys,
+            ..
         } => (wallet_pubkeys, strategy),
         other => {
             return Err(format!(

@@ -127,6 +127,8 @@ type StreamConfigure struct {
 	WalletPubkeys      []string          `json:"wallet_pubkeys"`
 	Strategy           StrategyConfigMsg `json:"strategy"`
 	DeadlineTimeoutSec uint64            `json:"deadline_timeout_sec,omitempty"`
+	SendMode           *string           `json:"send_mode,omitempty"`
+	TipLamports        *uint64           `json:"tip_lamports,omitempty"`
 }
 
 // OptionalStrategyConfig holds optional TP/SL/trailing settings where nil means disabled.
@@ -539,6 +541,8 @@ func (w *streamConnectionWorker) runConnectedSession(
 	configureMessage := ConfigureClientMessage{
 		WalletPubkeys: append([]string(nil), w.configure.WalletPubkeys...),
 		Strategy:      w.configure.Strategy,
+		SendMode:      w.configure.SendMode,
+		TipLamports:   w.configure.TipLamports,
 	}
 	if err := writeClientMessage(w.ctx, conn, configureMessage); err != nil {
 		if w.ctx.Err() != nil {
@@ -620,13 +624,26 @@ type readResult struct {
 func streamReadLoop(ctx context.Context, conn *websocket.Conn, out chan<- readResult) {
 	defer close(out)
 	for {
-		message, err := readServerMessage(ctx, conn)
+		readCtx, cancel := context.WithTimeout(ctx, ioReadTimeout)
+		typ, payload, err := conn.Read(readCtx)
+		cancel()
 		if err != nil {
 			select {
-			case out <- readResult{err: err}:
+			case out <- readResult{err: websocketError(err)}:
 			case <-ctx.Done():
 			}
 			return
+		}
+
+		if typ != websocket.MessageText {
+			// Skip non-text frames instead of treating as fatal.
+			continue
+		}
+
+		message, err := ServerMessageFromJSON(payload)
+		if err != nil {
+			// Skip unparseable server messages instead of reconnecting.
+			continue
 		}
 
 		select {
