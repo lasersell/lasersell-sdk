@@ -37,6 +37,26 @@ pub struct PositionHandle {
     pub tokens: u64,
     /// Entry quote amount in atomic units.
     pub entry_quote_units: u64,
+    /// Human-readable token name.
+    pub token_name: Option<String>,
+    /// Token ticker symbol.
+    pub token_symbol: Option<String>,
+    /// Token decimal places for display.
+    pub token_decimals: Option<u8>,
+    /// Market type string (e.g. "pump_fun", "raydium_cpmm").
+    pub market_type: Option<String>,
+    /// Launch platform that created the token (e.g. "bonk_fun", "bags_fm").
+    /// Derived from market context fields like Raydium Launchpad `platform`
+    /// or Meteora DBC `config`.
+    pub launch_platform: Option<String>,
+    /// Token price in quote units at time of open.
+    pub token_price_quote: Option<u64>,
+    /// Market cap in quote units at time of open.
+    pub market_cap_quote: Option<u64>,
+    /// Pool liquidity in quote units at time of open.
+    pub pool_liquidity_quote: Option<u64>,
+    /// Server timestamp when the position opened, in Unix milliseconds.
+    pub opened_at_ms: Option<u64>,
 }
 
 impl IntoPositionSelector for PositionHandle {
@@ -86,6 +106,13 @@ pub enum StreamEvent {
     },
     /// Liquidity snapshot with slippage bands for a position.
     LiquiditySnapshot {
+        /// Resolved position handle if known.
+        handle: Option<PositionHandle>,
+        /// Original underlying server message.
+        message: ServerMessage,
+    },
+    /// A trade tick observed on the pool for a tracked position.
+    TradeTick {
         /// Resolved position handle if known.
         handle: Option<PositionHandle>,
         /// Original underlying server message.
@@ -272,6 +299,14 @@ impl StreamSession {
                 token_program,
                 tokens,
                 entry_quote_units,
+                market_context,
+                token_name,
+                token_symbol,
+                token_decimals,
+                token_price_quote,
+                market_cap_quote,
+                pool_liquidity_quote,
+                opened_at_ms,
                 ..
             } => {
                 let handle = PositionHandle {
@@ -282,6 +317,15 @@ impl StreamSession {
                     token_program: token_program.clone(),
                     tokens: *tokens,
                     entry_quote_units: *entry_quote_units,
+                    token_name: token_name.clone(),
+                    token_symbol: token_symbol.clone(),
+                    token_decimals: *token_decimals,
+                    market_type: market_context.as_ref().map(|c| format!("{:?}", c.market_type).to_lowercase()),
+                    launch_platform: None,
+                    token_price_quote: *token_price_quote,
+                    market_cap_quote: *market_cap_quote,
+                    pool_liquidity_quote: *pool_liquidity_quote,
+                    opened_at_ms: *opened_at_ms,
                 };
                 info!(event = "session_position_opened", position_id, mint = %mint, tokens);
                 self.positions.insert(*position_id, handle.clone());
@@ -328,6 +372,10 @@ impl StreamSession {
                     handle,
                     message,
                 }
+            }
+            ServerMessage::TradeTick { position_id, .. } => {
+                let handle = self.find_position(*position_id, None);
+                StreamEvent::TradeTick { handle, message }
             }
             _ => StreamEvent::Message(message),
         }
