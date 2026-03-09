@@ -7,6 +7,7 @@ import {
   type ConfigureClientMessage,
   type ServerMessage,
   type StrategyConfigMsg,
+  type TakeProfitLevelMsg,
 } from "./proto.js";
 
 const MIN_RECONNECT_BACKOFF_MS = 100;
@@ -29,6 +30,9 @@ export interface OptionalStrategyConfig {
   stop_loss_pct?: number;
   trailing_stop_pct?: number;
   sellOnGraduation?: boolean;
+  take_profit_levels?: TakeProfitLevelMsg[];
+  liquidity_guard?: boolean;
+  breakeven_trail_pct?: number;
 }
 
 export interface StreamLanesOptions {
@@ -66,6 +70,15 @@ export function strategyConfigFromOptional(
   }
   if (strategy.sellOnGraduation !== undefined) {
     result.sell_on_graduation = strategy.sellOnGraduation;
+  }
+  if (strategy.take_profit_levels !== undefined) {
+    result.take_profit_levels = strategy.take_profit_levels;
+  }
+  if (strategy.liquidity_guard !== undefined) {
+    result.liquidity_guard = strategy.liquidity_guard;
+  }
+  if (strategy.breakeven_trail_pct !== undefined) {
+    result.breakeven_trail_pct = strategy.breakeven_trail_pct;
   }
   return result;
 }
@@ -1418,4 +1431,29 @@ function stringifyError(error: unknown): string {
     return `${error.name}: ${error.message}`;
   }
   return String(error);
+}
+
+export class StrategyConfigBuilder {
+  private msg: StrategyConfigMsg;
+
+  constructor() {
+    this.msg = {
+      target_profit_pct: 0,
+      stop_loss_pct: 0,
+      trailing_stop_pct: 0,
+      sell_on_graduation: false,
+      take_profit_levels: [],
+      liquidity_guard: false,
+      breakeven_trail_pct: 0,
+    };
+  }
+
+  targetProfitPct(pct: number): this { this.msg.target_profit_pct = pct; return this; }
+  stopLossPct(pct: number): this { this.msg.stop_loss_pct = pct; return this; }
+  trailingStopPct(pct: number): this { this.msg.trailing_stop_pct = pct; return this; }
+  sellOnGraduation(enabled: boolean): this { this.msg.sell_on_graduation = enabled; return this; }
+  takeProfitLevels(levels: TakeProfitLevelMsg[]): this { this.msg.take_profit_levels = levels; return this; }
+  liquidityGuard(enabled: boolean): this { this.msg.liquidity_guard = enabled; return this; }
+  breakevenTrailPct(pct: number): this { this.msg.breakeven_trail_pct = pct; return this; }
+  build(): StrategyConfigMsg { return { ...this.msg }; }
 }

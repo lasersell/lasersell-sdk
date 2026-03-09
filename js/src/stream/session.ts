@@ -23,6 +23,15 @@ export interface PositionHandle {
   token_program?: string;
   tokens: number;
   entry_quote_units: number;
+  token_name?: string;
+  token_symbol?: string;
+  token_decimals?: number;
+  market_type?: string;
+  launch_platform?: string;
+  token_price_quote?: number;
+  market_cap_quote?: number;
+  pool_liquidity_quote?: number;
+  opened_at_ms?: number;
 }
 
 export type StreamEvent =
@@ -52,6 +61,11 @@ export type StreamEvent =
     }
   | {
       type: "liquidity_snapshot";
+      handle?: PositionHandle;
+      message: ServerMessage;
+    }
+  | {
+      type: "trade_tick";
       handle?: PositionHandle;
       message: ServerMessage;
     };
@@ -174,14 +188,24 @@ export class StreamSession {
   private applyMessage(message: ServerMessage): StreamEvent {
     switch (message.type) {
       case "position_opened": {
+        const msg = message;
         const handle: PositionHandle = {
-          position_id: message.position_id,
-          token_account: message.token_account,
-          wallet_pubkey: message.wallet_pubkey,
-          mint: message.mint,
-          token_program: message.token_program,
-          tokens: message.tokens,
-          entry_quote_units: message.entry_quote_units,
+          position_id: msg.position_id,
+          token_account: msg.token_account,
+          wallet_pubkey: msg.wallet_pubkey,
+          mint: msg.mint,
+          token_program: msg.token_program,
+          tokens: msg.tokens,
+          entry_quote_units: msg.entry_quote_units,
+          token_name: msg.token_name,
+          token_symbol: msg.token_symbol,
+          token_decimals: msg.token_decimals,
+          market_type: msg.market_context?.market_type?.toLowerCase(),
+          launch_platform: undefined,
+          token_price_quote: msg.token_price_quote,
+          market_cap_quote: msg.market_cap_quote,
+          pool_liquidity_quote: msg.pool_liquidity_quote,
+          opened_at_ms: msg.opened_at_ms,
         };
 
         this.positionsById.set(message.position_id, handle);
@@ -234,6 +258,14 @@ export class StreamSession {
         return {
           type: "liquidity_snapshot",
           handle: handle === undefined ? undefined : { ...handle },
+          message,
+        };
+      }
+      case "trade_tick": {
+        const handle = this.findPosition(message.position_id);
+        return {
+          type: "trade_tick",
+          handle: handle ? { ...handle } : undefined,
           message,
         };
       }
@@ -403,5 +435,8 @@ function defaultStrategy(): StrategyConfigMsg {
   return {
     target_profit_pct: 0,
     stop_loss_pct: 0,
+    take_profit_levels: [],
+    liquidity_guard: false,
+    breakeven_trail_pct: 0,
   };
 }

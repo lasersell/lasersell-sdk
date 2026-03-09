@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "lasersell-sdk"
-version = "0.3.1"
+version = "1.0.0"
 dependencies = [
  "axum",
  "base64 0.21.7",
@@ -969,9 +969,9 @@ dependencies = [
 
 [[package]]
 name = "lasersell-stream-proto"
-version = "0.5.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea4eb7c09425c30de50e202d37f299fdea6e8cd8def672f4512b0455e16ab161"
+checksum = "d679e120d76706af60f60260c3e01a428a9a2cd4476c6d0dd5e3212d04303407"
 dependencies = [
  "serde",
  "serde_json",

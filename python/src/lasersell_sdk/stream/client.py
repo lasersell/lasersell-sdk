@@ -51,6 +51,9 @@ def strategy_config_from_optional(
     stop_loss_pct: float | None = None,
     trailing_stop_pct: float | None = None,
     sell_on_graduation: bool = False,
+    take_profit_levels: list | None = None,
+    liquidity_guard: bool = False,
+    breakeven_trail_pct: float | None = None,
 ) -> StrategyConfigMsg:
     result: StrategyConfigMsg = {
         "target_profit_pct": float(target_profit_pct) if target_profit_pct is not None else 0.0,
@@ -60,7 +63,59 @@ def strategy_config_from_optional(
         result["trailing_stop_pct"] = float(trailing_stop_pct)
     if sell_on_graduation:
         result["sell_on_graduation"] = True
+    if take_profit_levels is not None and len(take_profit_levels) > 0:
+        result["take_profit_levels"] = take_profit_levels
+    if liquidity_guard:
+        result["liquidity_guard"] = True
+    if breakeven_trail_pct is not None and breakeven_trail_pct > 0:
+        result["breakeven_trail_pct"] = float(breakeven_trail_pct)
     return result
+
+
+class StrategyConfigBuilder:
+    """Fluent builder for constructing a StrategyConfigMsg."""
+
+    def __init__(self) -> None:
+        self._msg: StrategyConfigMsg = {
+            "target_profit_pct": 0.0,
+            "stop_loss_pct": 0.0,
+            "trailing_stop_pct": 0.0,
+            "sell_on_graduation": False,
+            "take_profit_levels": [],
+            "liquidity_guard": False,
+            "breakeven_trail_pct": 0.0,
+        }
+
+    def target_profit_pct(self, pct: float) -> "StrategyConfigBuilder":
+        self._msg["target_profit_pct"] = pct
+        return self
+
+    def stop_loss_pct(self, pct: float) -> "StrategyConfigBuilder":
+        self._msg["stop_loss_pct"] = pct
+        return self
+
+    def trailing_stop_pct(self, pct: float) -> "StrategyConfigBuilder":
+        self._msg["trailing_stop_pct"] = pct
+        return self
+
+    def sell_on_graduation(self, enabled: bool) -> "StrategyConfigBuilder":
+        self._msg["sell_on_graduation"] = enabled
+        return self
+
+    def take_profit_levels(self, levels: list) -> "StrategyConfigBuilder":
+        self._msg["take_profit_levels"] = levels
+        return self
+
+    def liquidity_guard(self, enabled: bool) -> "StrategyConfigBuilder":
+        self._msg["liquidity_guard"] = enabled
+        return self
+
+    def breakeven_trail_pct(self, pct: float) -> "StrategyConfigBuilder":
+        self._msg["breakeven_trail_pct"] = pct
+        return self
+
+    def build(self) -> StrategyConfigMsg:
+        return dict(self._msg)
 
 
 def single_wallet_stream_configure(
@@ -648,6 +703,7 @@ __all__ = [
     "STREAM_ENDPOINT",
     "OptionalStrategyConfig",
     "PositionSelectorInput",
+    "StrategyConfigBuilder",
     "StreamClient",
     "StreamClientError",
     "StreamConfigure",

@@ -66,12 +66,22 @@ type MarketContextMsg struct {
 	RaydiumCpmm      *RaydiumCpmmContextMsg      `json:"raydium_cpmm,omitempty"`
 }
 
+// TakeProfitLevelMsg describes a single take-profit ladder level.
+type TakeProfitLevelMsg struct {
+	TriggerPct     float64 `json:"trigger_pct"`
+	SellPct        float64 `json:"sell_pct"`
+	TrailingAdjPct float64 `json:"trailing_adj_pct"`
+}
+
 // StrategyConfigMsg defines stream-side exit strategy parameters.
 type StrategyConfigMsg struct {
-	TargetProfitPct float64 `json:"target_profit_pct"`
-	StopLossPct     float64 `json:"stop_loss_pct"`
-	TrailingStopPct float64 `json:"trailing_stop_pct,omitempty"`
-	SellOnGraduation bool    `json:"sell_on_graduation,omitempty"`
+	TargetProfitPct   float64              `json:"target_profit_pct"`
+	StopLossPct       float64              `json:"stop_loss_pct"`
+	TrailingStopPct   float64              `json:"trailing_stop_pct,omitempty"`
+	SellOnGraduation  bool                 `json:"sell_on_graduation,omitempty"`
+	TakeProfitLevels  []TakeProfitLevelMsg `json:"take_profit_levels,omitempty"`
+	LiquidityGuard    bool                 `json:"liquidity_guard,omitempty"`
+	BreakevenTrailPct float64              `json:"breakeven_trail_pct,omitempty"`
 }
 
 // Exit reason constants for position close/exit messages.
@@ -182,6 +192,7 @@ const (
 	ServerMessageTypePositionClosed   ServerMessageType = "position_closed"
 	ServerMessageTypeExitSignalWithTx    ServerMessageType = "exit_signal_with_tx"
 	ServerMessageTypeLiquiditySnapshot ServerMessageType = "liquidity_snapshot"
+	ServerMessageTypeTradeTick         ServerMessageType = "trade_tick"
 )
 
 // ServerMessage is a tagged stream event payload.
@@ -215,10 +226,12 @@ func (ErrorServerMessage) ServerMessageType() ServerMessageType { return ServerM
 
 // PnlUpdateServerMessage reports PnL for an active position.
 type PnlUpdateServerMessage struct {
-	PositionID    uint64 `json:"position_id"`
-	ProfitUnits   int64  `json:"profit_units"`
-	ProceedsUnits uint64 `json:"proceeds_units"`
-	ServerTimeMS  uint64 `json:"server_time_ms"`
+	PositionID      uint64  `json:"position_id"`
+	ProfitUnits     int64   `json:"profit_units"`
+	ProceedsUnits   uint64  `json:"proceeds_units"`
+	ServerTimeMS    uint64  `json:"server_time_ms"`
+	TokenPriceQuote *uint64 `json:"token_price_quote,omitempty"`
+	MarketCapQuote  *uint64 `json:"market_cap_quote,omitempty"`
 }
 
 func (PnlUpdateServerMessage) ServerMessageType() ServerMessageType {
@@ -241,15 +254,22 @@ func (BalanceUpdateServerMessage) ServerMessageType() ServerMessageType {
 
 // PositionOpenedServerMessage reports newly opened positions.
 type PositionOpenedServerMessage struct {
-	PositionID      uint64            `json:"position_id"`
-	WalletPubkey    string            `json:"wallet_pubkey"`
-	Mint            string            `json:"mint"`
-	TokenAccount    string            `json:"token_account"`
-	TokenProgram    *string           `json:"token_program,omitempty"`
-	Tokens          uint64            `json:"tokens"`
-	EntryQuoteUnits uint64            `json:"entry_quote_units"`
-	MarketContext   *MarketContextMsg `json:"market_context,omitempty"`
-	Slot            uint64            `json:"slot"`
+	PositionID         uint64            `json:"position_id"`
+	WalletPubkey       string            `json:"wallet_pubkey"`
+	Mint               string            `json:"mint"`
+	TokenAccount       string            `json:"token_account"`
+	TokenProgram       *string           `json:"token_program,omitempty"`
+	Tokens             uint64            `json:"tokens"`
+	EntryQuoteUnits    uint64            `json:"entry_quote_units"`
+	MarketContext      *MarketContextMsg `json:"market_context,omitempty"`
+	Slot               uint64            `json:"slot"`
+	TokenName          *string           `json:"token_name,omitempty"`
+	TokenSymbol        *string           `json:"token_symbol,omitempty"`
+	TokenDecimals      *uint8            `json:"token_decimals,omitempty"`
+	TokenPriceQuote    *uint64           `json:"token_price_quote,omitempty"`
+	MarketCapQuote     *uint64           `json:"market_cap_quote,omitempty"`
+	PoolLiquidityQuote *uint64           `json:"pool_liquidity_quote,omitempty"`
+	OpenedAtMs         *uint64           `json:"opened_at_ms,omitempty"`
 }
 
 func (PositionOpenedServerMessage) ServerMessageType() ServerMessageType {
@@ -284,6 +304,8 @@ type ExitSignalWithTxServerMessage struct {
 	TriggeredAtMS  uint64            `json:"triggered_at_ms"`
 	MarketContext  *MarketContextMsg `json:"market_context,omitempty"`
 	UnsignedTxB64  string            `json:"unsigned_tx_b64"`
+	SellTokens     *uint64           `json:"sell_tokens,omitempty"`
+	LevelIndex     *uint32           `json:"level_index,omitempty"`
 }
 
 func (ExitSignalWithTxServerMessage) ServerMessageType() ServerMessageType {
@@ -307,6 +329,22 @@ type LiquiditySnapshotServerMessage struct {
 
 func (LiquiditySnapshotServerMessage) ServerMessageType() ServerMessageType {
 	return ServerMessageTypeLiquiditySnapshot
+}
+
+// TradeTickServerMessage reports a trade tick for a position.
+type TradeTickServerMessage struct {
+	PositionID  uint64  `json:"position_id"`
+	TimeMS      uint64  `json:"time_ms"`
+	Side        string  `json:"side"`
+	TokenAmount uint64  `json:"token_amount"`
+	QuoteAmount uint64  `json:"quote_amount"`
+	PriceQuote  uint64  `json:"price_quote"`
+	Maker       *string `json:"maker,omitempty"`
+	TxSignature *string `json:"tx_signature,omitempty"`
+}
+
+func (TradeTickServerMessage) ServerMessageType() ServerMessageType {
+	return ServerMessageTypeTradeTick
 }
 
 // ClientMessageFromText decodes a client message JSON string.
@@ -566,6 +604,12 @@ func ServerMessageFromJSON(data []byte) (ServerMessage, error) {
 			return nil, fmt.Errorf("decode liquidity_snapshot: %w", err)
 		}
 		return msg, nil
+	case string(ServerMessageTypeTradeTick):
+		var msg TradeTickServerMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("unmarshal trade_tick: %w", err)
+		}
+		return msg, nil
 	default:
 		return nil, fmt.Errorf("unsupported server message type: %s", envelope.Type)
 	}
@@ -660,6 +704,16 @@ func ServerMessageToJSON(message ServerMessage) ([]byte, error) {
 			LiquiditySnapshotServerMessage
 		}{Type: string(ServerMessageTypeLiquiditySnapshot), LiquiditySnapshotServerMessage: msg})
 	case *LiquiditySnapshotServerMessage:
+		return ServerMessageToJSON(*msg)
+	case TradeTickServerMessage:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			TradeTickServerMessage
+		}{Type: string(ServerMessageTypeTradeTick), TradeTickServerMessage: msg})
+	case *TradeTickServerMessage:
+		if msg == nil {
+			return nil, fmt.Errorf("server message cannot be nil")
+		}
 		return ServerMessageToJSON(*msg)
 	default:
 		return nil, fmt.Errorf("unsupported server message type %T", message)

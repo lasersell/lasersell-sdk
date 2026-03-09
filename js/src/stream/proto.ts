@@ -48,11 +48,20 @@ export interface MarketContextMsg {
   raydium_cpmm?: RaydiumCpmmContextMsg;
 }
 
+export interface TakeProfitLevelMsg {
+  trigger_pct: number;
+  sell_pct: number;
+  trailing_adj_pct: number;
+}
+
 export interface StrategyConfigMsg {
   target_profit_pct: number;
   stop_loss_pct: number;
   trailing_stop_pct?: number;
   sell_on_graduation?: boolean;
+  take_profit_levels?: TakeProfitLevelMsg[];
+  liquidity_guard?: boolean;
+  breakeven_trail_pct?: number;
 }
 
 export interface LimitsMsg {
@@ -132,6 +141,8 @@ export interface PnlUpdateServerMessage {
   profit_units: number;
   proceeds_units: number;
   server_time_ms: number;
+  token_price_quote?: number;
+  market_cap_quote?: number;
 }
 
 export interface SlippageBandMsg {
@@ -169,6 +180,13 @@ export interface PositionOpenedServerMessage {
   entry_quote_units: number;
   market_context?: MarketContextMsg;
   slot: number;
+  token_name?: string;
+  token_symbol?: string;
+  token_decimals?: number;
+  token_price_quote?: number;
+  market_cap_quote?: number;
+  pool_liquidity_quote?: number;
+  opened_at_ms?: number;
 }
 
 export interface PositionClosedServerMessage {
@@ -195,6 +213,20 @@ export interface ExitSignalWithTxServerMessage {
   triggered_at_ms: number;
   market_context?: MarketContextMsg;
   unsigned_tx_b64: string;
+  sell_tokens?: number;
+  level_index?: number;
+}
+
+export interface TradeTickServerMessage {
+  type: "trade_tick";
+  position_id: number;
+  time_ms: number;
+  side: string;
+  token_amount: number;
+  quote_amount: number;
+  price_quote: number;
+  maker?: string;
+  tx_signature?: string;
 }
 
 export type ServerMessage =
@@ -206,7 +238,8 @@ export type ServerMessage =
   | BalanceUpdateServerMessage
   | PositionOpenedServerMessage
   | PositionClosedServerMessage
-  | ExitSignalWithTxServerMessage;
+  | ExitSignalWithTxServerMessage
+  | TradeTickServerMessage;
 
 export function clientMessageFromText(text: string): ClientMessage {
   let parsed: unknown;
@@ -333,13 +366,22 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
       };
     }
     case "pnl_update": {
-      return {
+      const msg: PnlUpdateServerMessage = {
         type: "pnl_update",
         position_id: asNumber(obj.position_id, "pnl_update.position_id"),
         profit_units: asNumber(obj.profit_units, "pnl_update.profit_units"),
         proceeds_units: asNumber(obj.proceeds_units, "pnl_update.proceeds_units"),
         server_time_ms: asNumber(obj.server_time_ms, "pnl_update.server_time_ms"),
       };
+      const token_price_quote = optionalNumber(obj.token_price_quote, "pnl_update.token_price_quote");
+      if (token_price_quote !== undefined) {
+        msg.token_price_quote = token_price_quote;
+      }
+      const market_cap_quote = optionalNumber(obj.market_cap_quote, "pnl_update.market_cap_quote");
+      if (market_cap_quote !== undefined) {
+        msg.market_cap_quote = market_cap_quote;
+      }
+      return msg;
     }
     case "liquidity_snapshot": {
       const rawBands = obj.bands;
@@ -382,7 +424,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
       };
     }
     case "position_opened": {
-      return {
+      const msg: PositionOpenedServerMessage = {
         type: "position_opened",
         position_id: asNumber(obj.position_id, "position_opened.position_id"),
         wallet_pubkey: asString(
@@ -406,6 +448,35 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
         ),
         slot: asNumber(obj.slot, "position_opened.slot"),
       };
+      const token_name = optionalString(obj.token_name, "position_opened.token_name");
+      if (token_name !== undefined) {
+        msg.token_name = token_name;
+      }
+      const token_symbol = optionalString(obj.token_symbol, "position_opened.token_symbol");
+      if (token_symbol !== undefined) {
+        msg.token_symbol = token_symbol;
+      }
+      const token_decimals = optionalNumber(obj.token_decimals, "position_opened.token_decimals");
+      if (token_decimals !== undefined) {
+        msg.token_decimals = token_decimals;
+      }
+      const token_price_quote = optionalNumber(obj.token_price_quote, "position_opened.token_price_quote");
+      if (token_price_quote !== undefined) {
+        msg.token_price_quote = token_price_quote;
+      }
+      const market_cap_quote = optionalNumber(obj.market_cap_quote, "position_opened.market_cap_quote");
+      if (market_cap_quote !== undefined) {
+        msg.market_cap_quote = market_cap_quote;
+      }
+      const pool_liquidity_quote = optionalNumber(obj.pool_liquidity_quote, "position_opened.pool_liquidity_quote");
+      if (pool_liquidity_quote !== undefined) {
+        msg.pool_liquidity_quote = pool_liquidity_quote;
+      }
+      const opened_at_ms = optionalNumber(obj.opened_at_ms, "position_opened.opened_at_ms");
+      if (opened_at_ms !== undefined) {
+        msg.opened_at_ms = opened_at_ms;
+      }
+      return msg;
     }
     case "position_closed": {
       return {
@@ -425,7 +496,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
       };
     }
     case "exit_signal_with_tx": {
-      return {
+      const msg: ExitSignalWithTxServerMessage = {
         type: "exit_signal_with_tx",
         session_id: asNumber(obj.session_id, "exit_signal_with_tx.session_id"),
         position_id: asNumber(obj.position_id, "exit_signal_with_tx.position_id"),
@@ -460,6 +531,28 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
           obj.unsigned_tx_b64,
           "exit_signal_with_tx.unsigned_tx_b64",
         ),
+      };
+      const sell_tokens = optionalNumber(obj.sell_tokens, "exit_signal_with_tx.sell_tokens");
+      if (sell_tokens !== undefined) {
+        msg.sell_tokens = sell_tokens;
+      }
+      const level_index = optionalNumber(obj.level_index, "exit_signal_with_tx.level_index");
+      if (level_index !== undefined) {
+        msg.level_index = level_index;
+      }
+      return msg;
+    }
+    case "trade_tick": {
+      return {
+        type: "trade_tick",
+        position_id: asNumber(obj.position_id, "trade_tick.position_id"),
+        time_ms: asNumber(obj.time_ms, "trade_tick.time_ms"),
+        side: asString(obj.side, "trade_tick.side"),
+        token_amount: asNumber(obj.token_amount, "trade_tick.token_amount"),
+        quote_amount: asNumber(obj.quote_amount, "trade_tick.quote_amount"),
+        price_quote: asNumber(obj.price_quote, "trade_tick.price_quote"),
+        maker: optionalString(obj.maker, "trade_tick.maker"),
+        tx_signature: optionalString(obj.tx_signature, "trade_tick.tx_signature"),
       };
     }
     default:
@@ -517,6 +610,34 @@ function parseStrategyConfig(value: unknown): StrategyConfigMsg {
   if (sellOnGraduation !== undefined) {
     result.sell_on_graduation = sellOnGraduation;
   }
+
+  const rawLevels = obj.take_profit_levels;
+  if (Array.isArray(rawLevels)) {
+    result.take_profit_levels = rawLevels.map(
+      (item: unknown, idx: number) => {
+        const level = asRecord(item, `strategy.take_profit_levels[${idx}]`);
+        return {
+          trigger_pct: asNumber(level.trigger_pct, `strategy.take_profit_levels[${idx}].trigger_pct`),
+          sell_pct: asNumber(level.sell_pct, `strategy.take_profit_levels[${idx}].sell_pct`),
+          trailing_adj_pct: asNumber(level.trailing_adj_pct, `strategy.take_profit_levels[${idx}].trailing_adj_pct`),
+        };
+      },
+    );
+  } else {
+    result.take_profit_levels = [];
+  }
+
+  const liquidityGuard = optionalBoolean(
+    obj.liquidity_guard,
+    "strategy.liquidity_guard",
+  );
+  result.liquidity_guard = liquidityGuard ?? false;
+
+  const breakevenTrailPct = optionalNumber(
+    obj.breakeven_trail_pct,
+    "strategy.breakeven_trail_pct",
+  );
+  result.breakeven_trail_pct = breakevenTrailPct ?? 0;
 
   return result;
 }

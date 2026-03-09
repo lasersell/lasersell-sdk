@@ -133,10 +133,13 @@ type StreamConfigure struct {
 
 // OptionalStrategyConfig holds optional TP/SL/trailing settings where nil means disabled.
 type OptionalStrategyConfig struct {
-	TargetProfitPct *float64
-	StopLossPct     *float64
-	TrailingStopPct *float64
-	SellOnGraduation *bool
+	TargetProfitPct   *float64
+	StopLossPct       *float64
+	TrailingStopPct   *float64
+	SellOnGraduation  *bool
+	TakeProfitLevels  *[]TakeProfitLevelMsg
+	LiquidityGuard    *bool
+	BreakevenTrailPct *float64
 }
 
 // SingleWalletStreamConfigure creates configuration for a single wallet.
@@ -163,6 +166,15 @@ func StrategyConfigFromOptional(optional OptionalStrategyConfig) StrategyConfigM
 	}
 	if optional.SellOnGraduation != nil {
 		strategy.SellOnGraduation = *optional.SellOnGraduation
+	}
+	if optional.TakeProfitLevels != nil {
+		strategy.TakeProfitLevels = *optional.TakeProfitLevels
+	}
+	if optional.LiquidityGuard != nil {
+		strategy.LiquidityGuard = *optional.LiquidityGuard
+	}
+	if optional.BreakevenTrailPct != nil {
+		strategy.BreakevenTrailPct = *optional.BreakevenTrailPct
 	}
 	return strategy
 }
@@ -708,4 +720,63 @@ func prependPending(pending []ClientMessage, next ClientMessage) []ClientMessage
 	copy(pending[1:], pending[:len(pending)-1])
 	pending[0] = next
 	return pending
+}
+
+// StrategyConfigBuilder builds a StrategyConfigMsg using method chaining.
+type StrategyConfigBuilder struct {
+	msg StrategyConfigMsg
+}
+
+// NewStrategyConfigBuilder creates a new builder with zero-value defaults.
+func NewStrategyConfigBuilder() *StrategyConfigBuilder {
+	return &StrategyConfigBuilder{
+		msg: StrategyConfigMsg{},
+	}
+}
+
+// TargetProfitPct sets the target profit percentage.
+func (b *StrategyConfigBuilder) TargetProfitPct(pct float64) *StrategyConfigBuilder {
+	b.msg.TargetProfitPct = pct
+	return b
+}
+
+// StopLossPct sets the stop loss percentage.
+func (b *StrategyConfigBuilder) StopLossPct(pct float64) *StrategyConfigBuilder {
+	b.msg.StopLossPct = pct
+	return b
+}
+
+// TrailingStopPct sets the trailing stop percentage.
+func (b *StrategyConfigBuilder) TrailingStopPct(pct float64) *StrategyConfigBuilder {
+	b.msg.TrailingStopPct = pct
+	return b
+}
+
+// SellOnGraduation sets whether to sell on graduation.
+func (b *StrategyConfigBuilder) SellOnGraduation(enabled bool) *StrategyConfigBuilder {
+	b.msg.SellOnGraduation = enabled
+	return b
+}
+
+// TakeProfitLevels sets the take-profit ladder levels.
+func (b *StrategyConfigBuilder) TakeProfitLevels(levels []TakeProfitLevelMsg) *StrategyConfigBuilder {
+	b.msg.TakeProfitLevels = levels
+	return b
+}
+
+// LiquidityGuard sets whether liquidity guard is enabled.
+func (b *StrategyConfigBuilder) LiquidityGuard(enabled bool) *StrategyConfigBuilder {
+	b.msg.LiquidityGuard = enabled
+	return b
+}
+
+// BreakevenTrailPct sets the breakeven trailing percentage.
+func (b *StrategyConfigBuilder) BreakevenTrailPct(pct float64) *StrategyConfigBuilder {
+	b.msg.BreakevenTrailPct = pct
+	return b
+}
+
+// Build returns the constructed StrategyConfigMsg.
+func (b *StrategyConfigBuilder) Build() StrategyConfigMsg {
+	return b.msg
 }

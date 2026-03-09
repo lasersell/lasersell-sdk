@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
 use tracing::{debug, info, trace, warn};
 
-use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg};
+use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg, TakeProfitLevelMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(2);
@@ -168,18 +168,96 @@ impl StreamConfigure {
 
 /// Builds wire strategy config from optional TP/SL settings.
 ///
-/// Unset values default to `0.0` (disabled).
+/// Unset values default to `0.0` (disabled). For more control, use
+/// [`StrategyConfigBuilder`].
 pub fn strategy_config_from_optional(
     target_profit_pct: Option<f64>,
     stop_loss_pct: Option<f64>,
     trailing_stop_pct: Option<f64>,
     sell_on_graduation: Option<bool>,
 ) -> StrategyConfigMsg {
-    StrategyConfigMsg {
-        target_profit_pct: target_profit_pct.unwrap_or(0.0),
-        stop_loss_pct: stop_loss_pct.unwrap_or(0.0),
-        trailing_stop_pct: trailing_stop_pct.unwrap_or(0.0),
-        sell_on_graduation: sell_on_graduation.unwrap_or(false),
+    StrategyConfigBuilder::new()
+        .target_profit_pct(target_profit_pct.unwrap_or(0.0))
+        .stop_loss_pct(stop_loss_pct.unwrap_or(0.0))
+        .trailing_stop_pct(trailing_stop_pct.unwrap_or(0.0))
+        .sell_on_graduation(sell_on_graduation.unwrap_or(false))
+        .build()
+}
+
+/// Builder for constructing a [`StrategyConfigMsg`] with all strategy fields.
+///
+/// ```
+/// use lasersell_sdk::stream::client::StrategyConfigBuilder;
+///
+/// let strategy = StrategyConfigBuilder::new()
+///     .target_profit_pct(25.0)
+///     .stop_loss_pct(10.0)
+///     .trailing_stop_pct(5.0)
+///     .breakeven_trail_pct(20.0)
+///     .build();
+/// ```
+pub struct StrategyConfigBuilder {
+    msg: StrategyConfigMsg,
+}
+
+impl StrategyConfigBuilder {
+    pub fn new() -> Self {
+        Self {
+            msg: StrategyConfigMsg {
+                target_profit_pct: 0.0,
+                stop_loss_pct: 0.0,
+                trailing_stop_pct: 0.0,
+                sell_on_graduation: false,
+                take_profit_levels: Vec::new(),
+                liquidity_guard: false,
+                breakeven_trail_pct: 0.0,
+            },
+        }
+    }
+
+    pub fn target_profit_pct(mut self, pct: f64) -> Self {
+        self.msg.target_profit_pct = pct;
+        self
+    }
+
+    pub fn stop_loss_pct(mut self, pct: f64) -> Self {
+        self.msg.stop_loss_pct = pct;
+        self
+    }
+
+    pub fn trailing_stop_pct(mut self, pct: f64) -> Self {
+        self.msg.trailing_stop_pct = pct;
+        self
+    }
+
+    pub fn sell_on_graduation(mut self, enabled: bool) -> Self {
+        self.msg.sell_on_graduation = enabled;
+        self
+    }
+
+    pub fn take_profit_levels(mut self, levels: Vec<TakeProfitLevelMsg>) -> Self {
+        self.msg.take_profit_levels = levels;
+        self
+    }
+
+    pub fn liquidity_guard(mut self, enabled: bool) -> Self {
+        self.msg.liquidity_guard = enabled;
+        self
+    }
+
+    pub fn breakeven_trail_pct(mut self, pct: f64) -> Self {
+        self.msg.breakeven_trail_pct = pct;
+        self
+    }
+
+    pub fn build(self) -> StrategyConfigMsg {
+        self.msg
+    }
+}
+
+impl Default for StrategyConfigBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

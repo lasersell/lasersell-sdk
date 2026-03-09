@@ -552,5 +552,8 @@ fn default_strategy() -> StrategyConfigMsg {
         stop_loss_pct: 0.0,
         trailing_stop_pct: 0.0,
         sell_on_graduation: false,
+        take_profit_levels: Vec::new(),
+        liquidity_guard: false,
+        breakeven_trail_pct: 0.0,
     }
 }

@@ -28,6 +28,15 @@ class PositionHandle:
     token_program: str | None
     tokens: int
     entry_quote_units: int
+    token_name: str | None = None
+    token_symbol: str | None = None
+    token_decimals: int | None = None
+    market_type: str | None = None
+    launch_platform: str | None = None
+    token_price_quote: int | None = None
+    market_cap_quote: int | None = None
+    pool_liquidity_quote: int | None = None
+    opened_at_ms: int | None = None
 
 
 @dataclass(slots=True)
@@ -91,6 +100,15 @@ class StreamSession:
                 token_program=handle.token_program,
                 tokens=handle.tokens,
                 entry_quote_units=handle.entry_quote_units,
+                token_name=handle.token_name,
+                token_symbol=handle.token_symbol,
+                token_decimals=handle.token_decimals,
+                market_type=handle.market_type,
+                launch_platform=handle.launch_platform,
+                token_price_quote=handle.token_price_quote,
+                market_cap_quote=handle.market_cap_quote,
+                pool_liquidity_quote=handle.pool_liquidity_quote,
+                opened_at_ms=handle.opened_at_ms,
             )
             for handle in self._positions_by_id.values()
         ]
@@ -179,6 +197,12 @@ class StreamSession:
 
         if message_type == "position_opened":
             position_id = int(message["position_id"])
+            market_context = message.get("market_context")
+            market_type_val: str | None = None
+            if isinstance(market_context, dict):
+                mt = market_context.get("market_type")
+                if isinstance(mt, str):
+                    market_type_val = mt
             handle = PositionHandle(
                 position_id=position_id,
                 token_account=str(message["token_account"]),
@@ -187,6 +211,14 @@ class StreamSession:
                 token_program=message.get("token_program") if isinstance(message.get("token_program"), str) else None,
                 tokens=int(message["tokens"]),
                 entry_quote_units=int(message["entry_quote_units"]),
+                token_name=message.get("token_name") if isinstance(message.get("token_name"), str) else None,
+                token_symbol=message.get("token_symbol") if isinstance(message.get("token_symbol"), str) else None,
+                token_decimals=int(message["token_decimals"]) if isinstance(message.get("token_decimals"), int) else None,
+                market_type=market_type_val,
+                token_price_quote=int(message["token_price_quote"]) if isinstance(message.get("token_price_quote"), int) else None,
+                market_cap_quote=int(message["market_cap_quote"]) if isinstance(message.get("market_cap_quote"), int) else None,
+                pool_liquidity_quote=int(message["pool_liquidity_quote"]) if isinstance(message.get("pool_liquidity_quote"), int) else None,
+                opened_at_ms=int(message["opened_at_ms"]) if isinstance(message.get("opened_at_ms"), int) else None,
             )
             self._positions_by_id[position_id] = handle
             self._arm_deadline(handle.token_account)
@@ -218,6 +250,10 @@ class StreamSession:
             self._liquidity_cache[position_id] = message  # type: ignore[assignment]
             handle = self._find_position(position_id)
             return StreamEvent(type="liquidity_snapshot", handle=handle, message=message)
+
+        if message_type == "trade_tick":
+            handle = self._find_position(int(message["position_id"]))
+            return StreamEvent(type="trade_tick", message=message, handle=handle)
 
         return StreamEvent(type="message", message=message)
 
@@ -345,4 +381,7 @@ def _default_strategy() -> StrategyConfigMsg:
     return {
         "target_profit_pct": 0.0,
         "stop_loss_pct": 0.0,
+        "take_profit_levels": [],
+        "liquidity_guard": False,
+        "breakeven_trail_pct": 0.0,
     }

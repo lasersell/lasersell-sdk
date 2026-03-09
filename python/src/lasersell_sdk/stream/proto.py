@@ -60,11 +60,20 @@ class MarketContextMsg(TypedDict, total=False):
     raydium_cpmm: NotRequired[RaydiumCpmmContextMsg]
 
 
+class TakeProfitLevelMsg(TypedDict):
+    trigger_pct: float
+    sell_pct: float
+    trailing_adj_pct: float
+
+
 class StrategyConfigMsg(TypedDict, total=False):
     target_profit_pct: Required[float]
     stop_loss_pct: Required[float]
     trailing_stop_pct: NotRequired[float]
     sell_on_graduation: NotRequired[bool]
+    take_profit_levels: NotRequired[list[TakeProfitLevelMsg]]
+    liquidity_guard: NotRequired[bool]
+    breakeven_trail_pct: NotRequired[float]
 
 
 class LimitsMsg(TypedDict):
@@ -140,12 +149,14 @@ class ErrorServerMessage(TypedDict):
     message: str
 
 
-class PnlUpdateServerMessage(TypedDict):
-    type: Literal["pnl_update"]
-    position_id: int
-    profit_units: int
-    proceeds_units: int
-    server_time_ms: int
+class PnlUpdateServerMessage(TypedDict, total=False):
+    type: Required[Literal["pnl_update"]]
+    position_id: Required[int]
+    profit_units: Required[int]
+    proceeds_units: Required[int]
+    server_time_ms: Required[int]
+    token_price_quote: NotRequired[int]
+    market_cap_quote: NotRequired[int]
 
 
 class SlippageBandMsg(TypedDict):
@@ -183,6 +194,13 @@ class PositionOpenedServerMessage(TypedDict, total=False):
     entry_quote_units: Required[int]
     market_context: NotRequired[MarketContextMsg]
     slot: Required[int]
+    token_name: NotRequired[str]
+    token_symbol: NotRequired[str]
+    token_decimals: NotRequired[int]
+    token_price_quote: NotRequired[int]
+    market_cap_quote: NotRequired[int]
+    pool_liquidity_quote: NotRequired[int]
+    opened_at_ms: NotRequired[int]
 
 
 class PositionClosedServerMessage(TypedDict, total=False):
@@ -209,6 +227,20 @@ class ExitSignalWithTxServerMessage(TypedDict, total=False):
     triggered_at_ms: Required[int]
     market_context: NotRequired[MarketContextMsg]
     unsigned_tx_b64: Required[str]
+    sell_tokens: NotRequired[int]
+    level_index: NotRequired[int]
+
+
+class TradeTickServerMessage(TypedDict, total=False):
+    type: Required[Literal["trade_tick"]]
+    position_id: Required[int]
+    time_ms: Required[int]
+    side: Required[str]
+    token_amount: Required[int]
+    quote_amount: Required[int]
+    price_quote: Required[int]
+    maker: NotRequired[str]
+    tx_signature: NotRequired[str]
 
 
 ServerMessage = (
@@ -221,6 +253,7 @@ ServerMessage = (
     | PositionOpenedServerMessage
     | PositionClosedServerMessage
     | ExitSignalWithTxServerMessage
+    | TradeTickServerMessage
 )
 
 
@@ -353,13 +386,19 @@ def server_message_from_obj(value: object) -> ServerMessage:
         }
 
     if message_type == "pnl_update":
-        return {
-            "type": "pnl_update",
-            "position_id": _as_int(obj.get("position_id"), "pnl_update.position_id"),
-            "profit_units": _as_int(obj.get("profit_units"), "pnl_update.profit_units"),
-            "proceeds_units": _as_int(obj.get("proceeds_units"), "pnl_update.proceeds_units"),
-            "server_time_ms": _as_int(obj.get("server_time_ms"), "pnl_update.server_time_ms"),
-        }
+        message = cast(
+            PnlUpdateServerMessage,
+            {
+                "type": "pnl_update",
+                "position_id": _as_int(obj.get("position_id"), "pnl_update.position_id"),
+                "profit_units": _as_int(obj.get("profit_units"), "pnl_update.profit_units"),
+                "proceeds_units": _as_int(obj.get("proceeds_units"), "pnl_update.proceeds_units"),
+                "server_time_ms": _as_int(obj.get("server_time_ms"), "pnl_update.server_time_ms"),
+            },
+        )
+        _set_optional_int(message, "token_price_quote", obj.get("token_price_quote"), "pnl_update.token_price_quote")
+        _set_optional_int(message, "market_cap_quote", obj.get("market_cap_quote"), "pnl_update.market_cap_quote")
+        return message
 
     if message_type == "liquidity_snapshot":
         raw_bands = obj.get("bands")
@@ -444,6 +483,13 @@ def server_message_from_obj(value: object) -> ServerMessage:
             obj.get("market_context"),
             "position_opened.market_context",
         )
+        _set_optional_str(message, "token_name", obj.get("token_name"), "position_opened.token_name")
+        _set_optional_str(message, "token_symbol", obj.get("token_symbol"), "position_opened.token_symbol")
+        _set_optional_int(message, "token_decimals", obj.get("token_decimals"), "position_opened.token_decimals")
+        _set_optional_int(message, "token_price_quote", obj.get("token_price_quote"), "position_opened.token_price_quote")
+        _set_optional_int(message, "market_cap_quote", obj.get("market_cap_quote"), "position_opened.market_cap_quote")
+        _set_optional_int(message, "pool_liquidity_quote", obj.get("pool_liquidity_quote"), "position_opened.pool_liquidity_quote")
+        _set_optional_int(message, "opened_at_ms", obj.get("opened_at_ms"), "position_opened.opened_at_ms")
         return message
 
     if message_type == "position_closed":
@@ -521,6 +567,25 @@ def server_message_from_obj(value: object) -> ServerMessage:
             obj.get("market_context"),
             "exit_signal_with_tx.market_context",
         )
+        _set_optional_int(message, "sell_tokens", obj.get("sell_tokens"), "exit_signal_with_tx.sell_tokens")
+        _set_optional_int(message, "level_index", obj.get("level_index"), "exit_signal_with_tx.level_index")
+        return message
+
+    if message_type == "trade_tick":
+        message = cast(
+            TradeTickServerMessage,
+            {
+                "type": "trade_tick",
+                "position_id": _as_int(obj.get("position_id"), "trade_tick.position_id"),
+                "time_ms": _as_int(obj.get("time_ms"), "trade_tick.time_ms"),
+                "side": _as_string(obj.get("side"), "trade_tick.side"),
+                "token_amount": _as_int(obj.get("token_amount"), "trade_tick.token_amount"),
+                "quote_amount": _as_int(obj.get("quote_amount"), "trade_tick.quote_amount"),
+                "price_quote": _as_int(obj.get("price_quote"), "trade_tick.price_quote"),
+            },
+        )
+        _set_optional_str(message, "maker", obj.get("maker"), "trade_tick.maker")
+        _set_optional_str(message, "tx_signature", obj.get("tx_signature"), "trade_tick.tx_signature")
         return message
 
     raise ValueError(f"unsupported server message type: {message_type}")
@@ -563,6 +628,18 @@ def _parse_strategy_config(value: object) -> StrategyConfigMsg:
         if not isinstance(sell_on_graduation_raw, bool):
             raise ValueError("strategy.sell_on_graduation must be a boolean")
         result["sell_on_graduation"] = sell_on_graduation_raw
+
+    take_profit_levels = obj.get("take_profit_levels", [])
+    if isinstance(take_profit_levels, list) and len(take_profit_levels) > 0:
+        result["take_profit_levels"] = take_profit_levels
+
+    liquidity_guard = bool(obj.get("liquidity_guard", False))
+    if liquidity_guard:
+        result["liquidity_guard"] = liquidity_guard
+
+    breakeven_trail_pct = float(obj.get("breakeven_trail_pct", 0.0))
+    if breakeven_trail_pct > 0:
+        result["breakeven_trail_pct"] = breakeven_trail_pct
 
     return result
 
@@ -770,6 +847,8 @@ __all__ = [
     "ServerMessage",
     "SlippageBandMsg",
     "StrategyConfigMsg",
+    "TakeProfitLevelMsg",
+    "TradeTickServerMessage",
     "UpdateStrategyClientMessage",
     "UpdateWalletsClientMessage",
     "client_message_from_obj",

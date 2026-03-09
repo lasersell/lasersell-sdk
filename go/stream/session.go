@@ -2,19 +2,29 @@ package stream
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 )
 
 // PositionHandle is a snapshot of a tracked position.
 type PositionHandle struct {
-	PositionID      uint64
-	TokenAccount    string
-	WalletPubkey    string
-	Mint            string
-	TokenProgram    *string
-	Tokens          uint64
-	EntryQuoteUnits uint64
+	PositionID         uint64
+	TokenAccount       string
+	WalletPubkey       string
+	Mint               string
+	TokenProgram       *string
+	Tokens             uint64
+	EntryQuoteUnits    uint64
+	TokenName          *string
+	TokenSymbol        *string
+	TokenDecimals      *uint8
+	MarketType         *string
+	LaunchPlatform     *string
+	TokenPriceQuote    *uint64
+	MarketCapQuote     *uint64
+	PoolLiquidityQuote *uint64
+	OpenedAtMs         *uint64
 }
 
 // StreamEventType classifies session-level events.
@@ -27,6 +37,7 @@ const (
 	StreamEventTypeExitSignalWithTx StreamEventType = "exit_signal_with_tx"
 	StreamEventTypePnlUpdate           StreamEventType = "pnl_update"
 	StreamEventTypeLiquiditySnapshot StreamEventType = "liquidity_snapshot"
+	StreamEventTypeTradeTick         StreamEventType = "trade_tick"
 )
 
 // StreamEvent maps raw server messages into position-aware events.
@@ -221,13 +232,24 @@ func (s *StreamSession) applyMessage(message ServerMessage) StreamEvent {
 	switch msg := message.(type) {
 	case PositionOpenedServerMessage:
 		handle := PositionHandle{
-			PositionID:      msg.PositionID,
-			TokenAccount:    msg.TokenAccount,
-			WalletPubkey:    msg.WalletPubkey,
-			Mint:            msg.Mint,
-			TokenProgram:    msg.TokenProgram,
-			Tokens:          msg.Tokens,
-			EntryQuoteUnits: msg.EntryQuoteUnits,
+			PositionID:         msg.PositionID,
+			TokenAccount:       msg.TokenAccount,
+			WalletPubkey:       msg.WalletPubkey,
+			Mint:               msg.Mint,
+			TokenProgram:       msg.TokenProgram,
+			Tokens:             msg.Tokens,
+			EntryQuoteUnits:    msg.EntryQuoteUnits,
+			TokenName:          msg.TokenName,
+			TokenSymbol:        msg.TokenSymbol,
+			TokenDecimals:      msg.TokenDecimals,
+			TokenPriceQuote:    msg.TokenPriceQuote,
+			MarketCapQuote:     msg.MarketCapQuote,
+			PoolLiquidityQuote: msg.PoolLiquidityQuote,
+			OpenedAtMs:         msg.OpenedAtMs,
+		}
+		if msg.MarketContext != nil {
+			mt := strings.ToLower(string(msg.MarketContext.MarketType))
+			handle.MarketType = &mt
 		}
 		s.positions[msg.PositionID] = handle
 		s.openedAt[handle.TokenAccount] = time.Now()
@@ -269,6 +291,13 @@ func (s *StreamSession) applyMessage(message ServerMessage) StreamEvent {
 		handle := s.findPosition(msg.PositionID, nil)
 		return StreamEvent{
 			Type:    StreamEventTypeLiquiditySnapshot,
+			Handle:  cloneHandlePtrFromPtr(handle),
+			Message: message,
+		}
+	case TradeTickServerMessage:
+		handle := s.findPosition(msg.PositionID, nil)
+		return StreamEvent{
+			Type:    StreamEventTypeTradeTick,
 			Handle:  cloneHandlePtrFromPtr(handle),
 			Message: message,
 		}

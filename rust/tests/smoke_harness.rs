@@ -56,6 +56,9 @@ async fn stream_client_ws_smoke_connect_configure_request_exit_signal() {
         stop_loss_pct: 1.5,
         trailing_stop_pct: 0.0,
         sell_on_graduation: false,
+        take_profit_levels: Vec::new(),
+        liquidity_guard: false,
+        breakeven_trail_pct: 0.0,
     };
     let (observed_tx, observed_rx) = oneshot::channel();
     let ws_state = WsState {
@@ -316,6 +319,8 @@ async fn run_ws_protocol(
             triggered_at_ms: 1_700_000_000_001,
             market_context: None,
             unsigned_tx_b64: DUMMY_TX_B64.to_string(),
+            sell_tokens: None,
+            level_index: None,
         },
     )
     .await?;
