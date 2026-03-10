@@ -455,6 +455,21 @@ impl StreamSender {
         self.send(ClientMessage::UpdateStrategy { strategy })
     }
 
+    /// Overrides the strategy for a single active position.
+    ///
+    /// The provided strategy fully replaces the session-level strategy for this
+    /// position only. Other positions are unaffected.
+    pub fn update_position_strategy(
+        &self,
+        position_id: u64,
+        strategy: StrategyConfigMsg,
+    ) -> Result<(), StreamClientError> {
+        self.send(ClientMessage::UpdatePositionStrategy {
+            position_id,
+            strategy,
+        })
+    }
+
     /// Replaces the set of monitored wallets for the active session.
     pub fn update_wallets(&self, wallet_pubkeys: Vec<String>) -> Result<(), StreamClientError> {
         self.send(ClientMessage::UpdateWallets { wallet_pubkeys })
