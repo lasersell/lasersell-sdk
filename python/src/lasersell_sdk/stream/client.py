@@ -15,6 +15,7 @@ from .proto import (
     RequestExitSignalClientMessage,
     ServerMessage,
     StrategyConfigMsg,
+    WatchWalletEntryMsg,
     client_message_to_text,
     server_message_from_text,
 )
@@ -37,6 +38,7 @@ class StreamConfigure:
     deadline_timeout_sec: int = 0
     send_mode: str | None = None
     tip_lamports: int | None = None
+    watch_wallets: list[WatchWalletEntryMsg] | None = None
 
 
 class OptionalStrategyConfig(TypedDict, total=False):
@@ -301,6 +303,12 @@ class StreamSender:
     def update_wallets(self, wallet_pubkeys: list[str]) -> None:
         self.send({"type": "update_wallets", "wallet_pubkeys": wallet_pubkeys})
 
+    def update_watch_wallets(self, watch_wallets: list[WatchWalletEntryMsg]) -> None:
+        self.send({"type": "update_watch_wallets", "watch_wallets": watch_wallets})
+
+    def update_position_strategy(self, position_id: int, strategy: StrategyConfigMsg) -> None:
+        self.send({"type": "update_position_strategy", "position_id": position_id, "strategy": strategy})
+
 
 PositionSelector = dict[str, int | str]
 PositionSelectorInput = int | str | Mapping[str, object]
@@ -397,6 +405,8 @@ class StreamConnectionWorker:
                 configure_message["send_mode"] = self._configure.send_mode
             if self._configure.tip_lamports is not None:
                 configure_message["tip_lamports"] = self._configure.tip_lamports
+            if self._configure.watch_wallets is not None and len(self._configure.watch_wallets) > 0:
+                configure_message["watch_wallets"] = list(self._configure.watch_wallets)
             await _send_client_message(socket, configure_message)
 
             configured_message = await _recv_server_message_after_configure(socket)

@@ -124,11 +124,12 @@ func invalidAPIKeyHeaderError(err error) error {
 
 // StreamConfigure configures wallets and strategy for a stream connection.
 type StreamConfigure struct {
-	WalletPubkeys      []string          `json:"wallet_pubkeys"`
-	Strategy           StrategyConfigMsg `json:"strategy"`
-	DeadlineTimeoutSec uint64            `json:"deadline_timeout_sec,omitempty"`
-	SendMode           *string           `json:"send_mode,omitempty"`
-	TipLamports        *uint64           `json:"tip_lamports,omitempty"`
+	WalletPubkeys      []string              `json:"wallet_pubkeys"`
+	Strategy           StrategyConfigMsg     `json:"strategy"`
+	DeadlineTimeoutSec uint64                `json:"deadline_timeout_sec,omitempty"`
+	SendMode           *string               `json:"send_mode,omitempty"`
+	TipLamports        *uint64               `json:"tip_lamports,omitempty"`
+	WatchWallets       []WatchWalletEntryMsg `json:"watch_wallets,omitempty"`
 }
 
 // OptionalStrategyConfig holds optional TP/SL/trailing settings where nil means disabled.
@@ -354,6 +355,16 @@ func (s *StreamSender) UpdateWallets(walletPubkeys []string) error {
 	return s.Send(UpdateWalletsClientMessage{WalletPubkeys: walletPubkeys})
 }
 
+// UpdateWatchWallets replaces the set of watched wallets for copy trading.
+func (s *StreamSender) UpdateWatchWallets(watchWallets []WatchWalletEntryMsg) error {
+	return s.Send(UpdateWatchWalletsClientMessage{WatchWallets: watchWallets})
+}
+
+// UpdatePositionStrategy updates strategy parameters for a single position.
+func (s *StreamSender) UpdatePositionStrategy(positionID uint64, strategy StrategyConfigMsg) error {
+	return s.Send(UpdatePositionStrategyClientMessage{PositionID: positionID, Strategy: strategy})
+}
+
 type sessionOutcome int
 
 const (
@@ -555,6 +566,7 @@ func (w *streamConnectionWorker) runConnectedSession(
 		Strategy:      w.configure.Strategy,
 		SendMode:      w.configure.SendMode,
 		TipLamports:   w.configure.TipLamports,
+		WatchWallets:  w.configure.WatchWallets,
 	}
 	if err := writeClientMessage(w.ctx, conn, configureMessage); err != nil {
 		if w.ctx.Err() != nil {

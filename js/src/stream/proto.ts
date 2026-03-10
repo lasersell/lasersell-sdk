@@ -49,9 +49,9 @@ export interface MarketContextMsg {
 }
 
 export interface TakeProfitLevelMsg {
-  trigger_pct: number;
+  profit_pct: number;
   sell_pct: number;
-  trailing_adj_pct: number;
+  trailing_stop_pct: number;
 }
 
 export interface StrategyConfigMsg {
@@ -64,6 +64,17 @@ export interface StrategyConfigMsg {
   breakeven_trail_pct?: number;
 }
 
+export interface AutoBuyConfigMsg {
+  wallet_pubkey: string;
+  amount_quote_units: number;
+  amount_usd1_units?: number;
+}
+
+export interface WatchWalletEntryMsg {
+  pubkey: string;
+  auto_buy?: AutoBuyConfigMsg;
+}
+
 export interface LimitsMsg {
   hi_capacity: number;
   pnl_flush_ms: number;
@@ -71,6 +82,7 @@ export interface LimitsMsg {
   max_wallets_per_session: number;
   max_positions_per_wallet: number;
   max_sessions_per_api_key: number;
+  max_watch_wallets_per_session: number;
 }
 
 export interface PingClientMessage {
@@ -84,6 +96,7 @@ export interface ConfigureClientMessage {
   strategy: StrategyConfigMsg;
   send_mode?: string;
   tip_lamports?: number;
+  watch_wallets?: WatchWalletEntryMsg[];
 }
 
 export interface UpdateStrategyClientMessage {
@@ -109,13 +122,26 @@ export interface UpdateWalletsClientMessage {
   wallet_pubkeys: string[];
 }
 
+export interface UpdateWatchWalletsClientMessage {
+  type: "update_watch_wallets";
+  watch_wallets: WatchWalletEntryMsg[];
+}
+
+export interface UpdatePositionStrategyClientMessage {
+  type: "update_position_strategy";
+  position_id: number;
+  strategy: StrategyConfigMsg;
+}
+
 export type ClientMessage =
   | PingClientMessage
   | ConfigureClientMessage
   | UpdateStrategyClientMessage
   | ClosePositionClientMessage
   | RequestExitSignalClientMessage
-  | UpdateWalletsClientMessage;
+  | UpdateWalletsClientMessage
+  | UpdateWatchWalletsClientMessage
+  | UpdatePositionStrategyClientMessage;
 
 export interface HelloOkServerMessage {
   type: "hello_ok";
@@ -143,6 +169,7 @@ export interface PnlUpdateServerMessage {
   server_time_ms: number;
   token_price_quote?: number;
   market_cap_quote?: number;
+  watched: boolean;
 }
 
 export interface SlippageBandMsg {
@@ -157,6 +184,7 @@ export interface LiquiditySnapshotServerMessage {
   bands: SlippageBandMsg[];
   liquidity_trend: string;
   server_time_ms: number;
+  watched: boolean;
 }
 
 export interface BalanceUpdateServerMessage {
@@ -187,6 +215,8 @@ export interface PositionOpenedServerMessage {
   market_cap_quote?: number;
   pool_liquidity_quote?: number;
   opened_at_ms?: number;
+  mirror_source?: string;
+  watched: boolean;
 }
 
 export interface PositionClosedServerMessage {
@@ -197,6 +227,8 @@ export interface PositionClosedServerMessage {
   token_account?: string;
   reason: string;
   slot: number;
+  mirror_source?: string;
+  watched: boolean;
 }
 
 export interface ExitSignalWithTxServerMessage {
@@ -215,6 +247,8 @@ export interface ExitSignalWithTxServerMessage {
   unsigned_tx_b64: string;
   sell_tokens?: number;
   level_index?: number;
+  mirror_source?: string;
+  watched: boolean;
 }
 
 export interface TradeTickServerMessage {
@@ -227,6 +261,7 @@ export interface TradeTickServerMessage {
   price_quote: number;
   maker?: string;
   tx_signature?: string;
+  watched: boolean;
 }
 
 export type ServerMessage =
@@ -277,6 +312,10 @@ export function clientMessageFromUnknown(value: unknown): ClientMessage {
       if (tip_lamports !== undefined) {
         msg.tip_lamports = tip_lamports;
       }
+      const watch_wallets = optionalWatchWallets(obj.watch_wallets);
+      if (watch_wallets !== undefined && watch_wallets.length > 0) {
+        msg.watch_wallets = watch_wallets;
+      }
       return msg;
     }
     case "update_strategy": {
@@ -318,6 +357,20 @@ export function clientMessageFromUnknown(value: unknown): ClientMessage {
       return {
         type: "update_wallets",
         wallet_pubkeys,
+      };
+    }
+    case "update_watch_wallets": {
+      const watch_wallets = parseWatchWallets(obj.watch_wallets);
+      return {
+        type: "update_watch_wallets",
+        watch_wallets,
+      };
+    }
+    case "update_position_strategy": {
+      return {
+        type: "update_position_strategy",
+        position_id: asNumber(obj.position_id, "update_position_strategy.position_id"),
+        strategy: parseStrategyConfig(obj.strategy),
       };
     }
     default:
@@ -372,6 +425,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
         profit_units: asNumber(obj.profit_units, "pnl_update.profit_units"),
         proceeds_units: asNumber(obj.proceeds_units, "pnl_update.proceeds_units"),
         server_time_ms: asNumber(obj.server_time_ms, "pnl_update.server_time_ms"),
+        watched: false,
       };
       const token_price_quote = optionalNumber(obj.token_price_quote, "pnl_update.token_price_quote");
       if (token_price_quote !== undefined) {
@@ -381,6 +435,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
       if (market_cap_quote !== undefined) {
         msg.market_cap_quote = market_cap_quote;
       }
+      msg.watched = optionalBoolean(obj.watched, "pnl_update.watched") ?? false;
       return msg;
     }
     case "liquidity_snapshot": {
@@ -404,6 +459,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
         bands,
         liquidity_trend: asString(obj.liquidity_trend, "liquidity_snapshot.liquidity_trend"),
         server_time_ms: asNumber(obj.server_time_ms, "liquidity_snapshot.server_time_ms"),
+        watched: optionalBoolean(obj.watched, "liquidity_snapshot.watched") ?? false,
       };
     }
     case "balance_update": {
@@ -447,6 +503,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
           "position_opened.market_context",
         ),
         slot: asNumber(obj.slot, "position_opened.slot"),
+        watched: false,
       };
       const token_name = optionalString(obj.token_name, "position_opened.token_name");
       if (token_name !== undefined) {
@@ -476,10 +533,15 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
       if (opened_at_ms !== undefined) {
         msg.opened_at_ms = opened_at_ms;
       }
+      const mirror_source = optionalString(obj.mirror_source, "position_opened.mirror_source");
+      if (mirror_source !== undefined) {
+        msg.mirror_source = mirror_source;
+      }
+      msg.watched = optionalBoolean(obj.watched, "position_opened.watched") ?? false;
       return msg;
     }
     case "position_closed": {
-      return {
+      const msg: PositionClosedServerMessage = {
         type: "position_closed",
         position_id: asNumber(obj.position_id, "position_closed.position_id"),
         wallet_pubkey: asString(
@@ -493,7 +555,14 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
         ),
         reason: asString(obj.reason, "position_closed.reason"),
         slot: asNumber(obj.slot, "position_closed.slot"),
+        watched: false,
       };
+      const mirror_source = optionalString(obj.mirror_source, "position_closed.mirror_source");
+      if (mirror_source !== undefined) {
+        msg.mirror_source = mirror_source;
+      }
+      msg.watched = optionalBoolean(obj.watched, "position_closed.watched") ?? false;
+      return msg;
     }
     case "exit_signal_with_tx": {
       const msg: ExitSignalWithTxServerMessage = {
@@ -531,6 +600,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
           obj.unsigned_tx_b64,
           "exit_signal_with_tx.unsigned_tx_b64",
         ),
+        watched: false,
       };
       const sell_tokens = optionalNumber(obj.sell_tokens, "exit_signal_with_tx.sell_tokens");
       if (sell_tokens !== undefined) {
@@ -540,6 +610,11 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
       if (level_index !== undefined) {
         msg.level_index = level_index;
       }
+      const mirror_source = optionalString(obj.mirror_source, "exit_signal_with_tx.mirror_source");
+      if (mirror_source !== undefined) {
+        msg.mirror_source = mirror_source;
+      }
+      msg.watched = optionalBoolean(obj.watched, "exit_signal_with_tx.watched") ?? false;
       return msg;
     }
     case "trade_tick": {
@@ -553,6 +628,7 @@ export function serverMessageFromUnknown(value: unknown): ServerMessage {
         price_quote: asNumber(obj.price_quote, "trade_tick.price_quote"),
         maker: optionalString(obj.maker, "trade_tick.maker"),
         tx_signature: optionalString(obj.tx_signature, "trade_tick.tx_signature"),
+        watched: optionalBoolean(obj.watched, "trade_tick.watched") ?? false,
       };
     }
     default:
@@ -617,9 +693,9 @@ function parseStrategyConfig(value: unknown): StrategyConfigMsg {
       (item: unknown, idx: number) => {
         const level = asRecord(item, `strategy.take_profit_levels[${idx}]`);
         return {
-          trigger_pct: asNumber(level.trigger_pct, `strategy.take_profit_levels[${idx}].trigger_pct`),
+          profit_pct: asNumber(level.profit_pct, `strategy.take_profit_levels[${idx}].profit_pct`),
           sell_pct: asNumber(level.sell_pct, `strategy.take_profit_levels[${idx}].sell_pct`),
-          trailing_adj_pct: asNumber(level.trailing_adj_pct, `strategy.take_profit_levels[${idx}].trailing_adj_pct`),
+          trailing_stop_pct: asNumber(level.trailing_stop_pct, `strategy.take_profit_levels[${idx}].trailing_stop_pct`),
         };
       },
     );
@@ -665,6 +741,11 @@ function parseLimits(value: unknown): LimitsMsg {
       optionalNumber(
         obj.max_sessions_per_api_key,
         "limits.max_sessions_per_api_key",
+      ) ?? 0,
+    max_watch_wallets_per_session:
+      optionalNumber(
+        obj.max_watch_wallets_per_session,
+        "limits.max_watch_wallets_per_session",
       ) ?? 0,
   };
 }
@@ -713,6 +794,38 @@ function parseMarketType(value: unknown, path: string): MarketTypeMsg {
     default:
       throw new Error(`invalid market type at ${path}: ${str}`);
   }
+}
+
+function parseWatchWallets(value: unknown): WatchWalletEntryMsg[] {
+  if (!Array.isArray(value)) {
+    throw new Error("watch_wallets must be an array");
+  }
+  return value.map((item: unknown, idx: number) => {
+    const entry = asRecord(item, `watch_wallets[${idx}]`);
+    const result: WatchWalletEntryMsg = {
+      pubkey: asString(entry.pubkey, `watch_wallets[${idx}].pubkey`),
+    };
+    if (entry.auto_buy !== undefined && entry.auto_buy !== null) {
+      const ab = asRecord(entry.auto_buy, `watch_wallets[${idx}].auto_buy`);
+      const autoBuy: AutoBuyConfigMsg = {
+        wallet_pubkey: asString(ab.wallet_pubkey, `watch_wallets[${idx}].auto_buy.wallet_pubkey`),
+        amount_quote_units: asNumber(ab.amount_quote_units, `watch_wallets[${idx}].auto_buy.amount_quote_units`),
+      };
+      const usd1 = optionalNumber(ab.amount_usd1_units, `watch_wallets[${idx}].auto_buy.amount_usd1_units`);
+      if (usd1 !== undefined) {
+        autoBuy.amount_usd1_units = usd1;
+      }
+      result.auto_buy = autoBuy;
+    }
+    return result;
+  });
+}
+
+function optionalWatchWallets(value: unknown): WatchWalletEntryMsg[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return parseWatchWallets(value);
 }
 
 function optionalBoolean(value: unknown, path: string): boolean | undefined {

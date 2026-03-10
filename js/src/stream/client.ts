@@ -8,6 +8,7 @@ import {
   type ServerMessage,
   type StrategyConfigMsg,
   type TakeProfitLevelMsg,
+  type WatchWalletEntryMsg,
 } from "./proto.js";
 
 const MIN_RECONNECT_BACKOFF_MS = 100;
@@ -23,6 +24,7 @@ export interface StreamConfigure {
   deadline_timeout_sec?: number;
   send_mode?: string;
   tip_lamports?: number;
+  watch_wallets?: WatchWalletEntryMsg[];
 }
 
 export interface OptionalStrategyConfig {
@@ -438,6 +440,21 @@ export class StreamSender {
       wallet_pubkeys: walletPubkeys,
     });
   }
+
+  updateWatchWallets(watchWallets: WatchWalletEntryMsg[]): void {
+    this.send({
+      type: "update_watch_wallets",
+      watch_wallets: watchWallets,
+    });
+  }
+
+  updatePositionStrategy(positionId: number, strategy: StrategyConfigMsg): void {
+    this.send({
+      type: "update_position_strategy",
+      position_id: positionId,
+      strategy,
+    });
+  }
 }
 
 function closeMessage(selector: PositionSelector): ClientMessage {
@@ -687,6 +704,9 @@ class StreamConnectionWorker {
       }
       if (this.configure.tip_lamports !== undefined) {
         configureMessage.tip_lamports = this.configure.tip_lamports;
+      }
+      if (this.configure.watch_wallets !== undefined && this.configure.watch_wallets.length > 0) {
+        configureMessage.watch_wallets = [...this.configure.watch_wallets];
       }
       await sendClientMessage(socket, configureMessage);
 

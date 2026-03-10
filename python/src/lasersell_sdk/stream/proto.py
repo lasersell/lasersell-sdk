@@ -61,9 +61,9 @@ class MarketContextMsg(TypedDict, total=False):
 
 
 class TakeProfitLevelMsg(TypedDict):
-    trigger_pct: float
+    profit_pct: float
     sell_pct: float
-    trailing_adj_pct: float
+    trailing_stop_pct: float
 
 
 class StrategyConfigMsg(TypedDict, total=False):
@@ -76,6 +76,17 @@ class StrategyConfigMsg(TypedDict, total=False):
     breakeven_trail_pct: NotRequired[float]
 
 
+class AutoBuyConfigMsg(TypedDict, total=False):
+    wallet_pubkey: Required[str]
+    amount_quote_units: Required[int]
+    amount_usd1_units: NotRequired[int]
+
+
+class WatchWalletEntryMsg(TypedDict, total=False):
+    pubkey: Required[str]
+    auto_buy: NotRequired[AutoBuyConfigMsg]
+
+
 class LimitsMsg(TypedDict):
     hi_capacity: int
     pnl_flush_ms: int
@@ -83,6 +94,7 @@ class LimitsMsg(TypedDict):
     max_wallets_per_session: int
     max_positions_per_wallet: int
     max_sessions_per_api_key: int
+    max_watch_wallets_per_session: int
 
 
 class PingClientMessage(TypedDict):
@@ -96,6 +108,7 @@ class ConfigureClientMessage(TypedDict, total=False):
     strategy: Required[StrategyConfigMsg]
     send_mode: NotRequired[str]
     tip_lamports: NotRequired[int]
+    watch_wallets: NotRequired[list[WatchWalletEntryMsg]]
 
 
 class UpdateStrategyClientMessage(TypedDict):
@@ -121,6 +134,17 @@ class UpdateWalletsClientMessage(TypedDict):
     wallet_pubkeys: list[str]
 
 
+class UpdateWatchWalletsClientMessage(TypedDict):
+    type: Literal["update_watch_wallets"]
+    watch_wallets: list[WatchWalletEntryMsg]
+
+
+class UpdatePositionStrategyClientMessage(TypedDict):
+    type: Literal["update_position_strategy"]
+    position_id: int
+    strategy: StrategyConfigMsg
+
+
 ClientMessage = (
     PingClientMessage
     | ConfigureClientMessage
@@ -128,6 +152,8 @@ ClientMessage = (
     | ClosePositionClientMessage
     | RequestExitSignalClientMessage
     | UpdateWalletsClientMessage
+    | UpdateWatchWalletsClientMessage
+    | UpdatePositionStrategyClientMessage
 )
 
 
@@ -157,6 +183,7 @@ class PnlUpdateServerMessage(TypedDict, total=False):
     server_time_ms: Required[int]
     token_price_quote: NotRequired[int]
     market_cap_quote: NotRequired[int]
+    watched: NotRequired[bool]
 
 
 class SlippageBandMsg(TypedDict):
@@ -165,12 +192,13 @@ class SlippageBandMsg(TypedDict):
     coverage_pct: float
 
 
-class LiquiditySnapshotServerMessage(TypedDict):
-    type: Literal["liquidity_snapshot"]
-    position_id: int
-    bands: list[SlippageBandMsg]
-    liquidity_trend: str
-    server_time_ms: int
+class LiquiditySnapshotServerMessage(TypedDict, total=False):
+    type: Required[Literal["liquidity_snapshot"]]
+    position_id: Required[int]
+    bands: Required[list[SlippageBandMsg]]
+    liquidity_trend: Required[str]
+    server_time_ms: Required[int]
+    watched: NotRequired[bool]
 
 
 class BalanceUpdateServerMessage(TypedDict, total=False):
@@ -201,6 +229,8 @@ class PositionOpenedServerMessage(TypedDict, total=False):
     market_cap_quote: NotRequired[int]
     pool_liquidity_quote: NotRequired[int]
     opened_at_ms: NotRequired[int]
+    mirror_source: NotRequired[str]
+    watched: NotRequired[bool]
 
 
 class PositionClosedServerMessage(TypedDict, total=False):
@@ -211,6 +241,8 @@ class PositionClosedServerMessage(TypedDict, total=False):
     token_account: NotRequired[str]
     reason: Required[str]
     slot: Required[int]
+    mirror_source: NotRequired[str]
+    watched: NotRequired[bool]
 
 
 class ExitSignalWithTxServerMessage(TypedDict, total=False):
@@ -229,6 +261,8 @@ class ExitSignalWithTxServerMessage(TypedDict, total=False):
     unsigned_tx_b64: Required[str]
     sell_tokens: NotRequired[int]
     level_index: NotRequired[int]
+    mirror_source: NotRequired[str]
+    watched: NotRequired[bool]
 
 
 class TradeTickServerMessage(TypedDict, total=False):
@@ -241,6 +275,7 @@ class TradeTickServerMessage(TypedDict, total=False):
     price_quote: Required[int]
     maker: NotRequired[str]
     tx_signature: NotRequired[str]
+    watched: NotRequired[bool]
 
 
 ServerMessage = (
@@ -287,6 +322,9 @@ def client_message_from_obj(value: object) -> ClientMessage:
         })
         _set_optional_str(message, "send_mode", obj.get("send_mode"), "configure.send_mode")
         _set_optional_int(message, "tip_lamports", obj.get("tip_lamports"), "configure.tip_lamports")
+        raw_watch_wallets = obj.get("watch_wallets")
+        if raw_watch_wallets is not None and isinstance(raw_watch_wallets, list) and len(raw_watch_wallets) > 0:
+            message["watch_wallets"] = _parse_watch_wallets(raw_watch_wallets)
         return message
 
     if message_type == "update_strategy":
@@ -337,6 +375,19 @@ def client_message_from_obj(value: object) -> ClientMessage:
         return {
             "type": "update_wallets",
             "wallet_pubkeys": _parse_wallet_pubkeys(obj),
+        }
+
+    if message_type == "update_watch_wallets":
+        return {
+            "type": "update_watch_wallets",
+            "watch_wallets": _parse_watch_wallets(obj.get("watch_wallets")),
+        }
+
+    if message_type == "update_position_strategy":
+        return {
+            "type": "update_position_strategy",
+            "position_id": _as_int(obj.get("position_id"), "update_position_strategy.position_id"),
+            "strategy": _parse_strategy_config(obj.get("strategy")),
         }
 
     raise ValueError(f"unsupported client message type: {message_type}")
@@ -398,6 +449,7 @@ def server_message_from_obj(value: object) -> ServerMessage:
         )
         _set_optional_int(message, "token_price_quote", obj.get("token_price_quote"), "pnl_update.token_price_quote")
         _set_optional_int(message, "market_cap_quote", obj.get("market_cap_quote"), "pnl_update.market_cap_quote")
+        _set_optional_bool(message, "watched", obj.get("watched"), "pnl_update.watched")
         return message
 
     if message_type == "liquidity_snapshot":
@@ -412,13 +464,18 @@ def server_message_from_obj(value: object) -> ServerMessage:
                 "max_tokens": _as_int(band_obj.get("max_tokens"), f"liquidity_snapshot.bands[{idx}].max_tokens"),
                 "coverage_pct": _as_float(band_obj.get("coverage_pct"), f"liquidity_snapshot.bands[{idx}].coverage_pct"),
             })
-        return {
-            "type": "liquidity_snapshot",
-            "position_id": _as_int(obj.get("position_id"), "liquidity_snapshot.position_id"),
-            "bands": bands,
-            "liquidity_trend": _as_string(obj.get("liquidity_trend"), "liquidity_snapshot.liquidity_trend"),
-            "server_time_ms": _as_int(obj.get("server_time_ms"), "liquidity_snapshot.server_time_ms"),
-        }
+        message = cast(
+            LiquiditySnapshotServerMessage,
+            {
+                "type": "liquidity_snapshot",
+                "position_id": _as_int(obj.get("position_id"), "liquidity_snapshot.position_id"),
+                "bands": bands,
+                "liquidity_trend": _as_string(obj.get("liquidity_trend"), "liquidity_snapshot.liquidity_trend"),
+                "server_time_ms": _as_int(obj.get("server_time_ms"), "liquidity_snapshot.server_time_ms"),
+            },
+        )
+        _set_optional_bool(message, "watched", obj.get("watched"), "liquidity_snapshot.watched")
+        return message
 
     if message_type == "balance_update":
         message = cast(
@@ -490,6 +547,8 @@ def server_message_from_obj(value: object) -> ServerMessage:
         _set_optional_int(message, "market_cap_quote", obj.get("market_cap_quote"), "position_opened.market_cap_quote")
         _set_optional_int(message, "pool_liquidity_quote", obj.get("pool_liquidity_quote"), "position_opened.pool_liquidity_quote")
         _set_optional_int(message, "opened_at_ms", obj.get("opened_at_ms"), "position_opened.opened_at_ms")
+        _set_optional_str(message, "mirror_source", obj.get("mirror_source"), "position_opened.mirror_source")
+        _set_optional_bool(message, "watched", obj.get("watched"), "position_opened.watched")
         return message
 
     if message_type == "position_closed":
@@ -513,6 +572,8 @@ def server_message_from_obj(value: object) -> ServerMessage:
             obj.get("token_account"),
             "position_closed.token_account",
         )
+        _set_optional_str(message, "mirror_source", obj.get("mirror_source"), "position_closed.mirror_source")
+        _set_optional_bool(message, "watched", obj.get("watched"), "position_closed.watched")
         return message
 
     if message_type == "exit_signal_with_tx":
@@ -569,6 +630,8 @@ def server_message_from_obj(value: object) -> ServerMessage:
         )
         _set_optional_int(message, "sell_tokens", obj.get("sell_tokens"), "exit_signal_with_tx.sell_tokens")
         _set_optional_int(message, "level_index", obj.get("level_index"), "exit_signal_with_tx.level_index")
+        _set_optional_str(message, "mirror_source", obj.get("mirror_source"), "exit_signal_with_tx.mirror_source")
+        _set_optional_bool(message, "watched", obj.get("watched"), "exit_signal_with_tx.watched")
         return message
 
     if message_type == "trade_tick":
@@ -586,6 +649,7 @@ def server_message_from_obj(value: object) -> ServerMessage:
         )
         _set_optional_str(message, "maker", obj.get("maker"), "trade_tick.maker")
         _set_optional_str(message, "tx_signature", obj.get("tx_signature"), "trade_tick.tx_signature")
+        _set_optional_bool(message, "watched", obj.get("watched"), "trade_tick.watched")
         return message
 
     raise ValueError(f"unsupported server message type: {message_type}")
@@ -609,6 +673,30 @@ def _parse_wallet_pubkeys(obj: dict[str, object]) -> list[str]:
     raise ValueError(
         "configure.wallet_pubkeys must be a string or string[] (legacy wallet_pubkey is supported)"
     )
+
+
+def _parse_watch_wallets(value: object) -> list[WatchWalletEntryMsg]:
+    if not isinstance(value, list):
+        raise ValueError("watch_wallets must be an array")
+    result: list[WatchWalletEntryMsg] = []
+    for idx, item in enumerate(value):
+        entry_obj = _as_record(item, f"watch_wallets[{idx}]")
+        entry: WatchWalletEntryMsg = {
+            "pubkey": _as_string(entry_obj.get("pubkey"), f"watch_wallets[{idx}].pubkey"),
+        }
+        raw_auto_buy = entry_obj.get("auto_buy")
+        if raw_auto_buy is not None:
+            ab_obj = _as_record(raw_auto_buy, f"watch_wallets[{idx}].auto_buy")
+            auto_buy: AutoBuyConfigMsg = {
+                "wallet_pubkey": _as_string(ab_obj.get("wallet_pubkey"), f"watch_wallets[{idx}].auto_buy.wallet_pubkey"),
+                "amount_quote_units": _as_int(ab_obj.get("amount_quote_units"), f"watch_wallets[{idx}].auto_buy.amount_quote_units"),
+            }
+            usd1 = _optional_int(ab_obj.get("amount_usd1_units"), f"watch_wallets[{idx}].auto_buy.amount_usd1_units")
+            if usd1 is not None:
+                auto_buy["amount_usd1_units"] = usd1
+            entry["auto_buy"] = auto_buy
+        result.append(entry)
+    return result
 
 
 def _parse_strategy_config(value: object) -> StrategyConfigMsg:
@@ -659,6 +747,10 @@ def _parse_limits(value: object) -> LimitsMsg:
         obj.get("max_sessions_per_api_key"),
         "limits.max_sessions_per_api_key",
     )
+    max_watch_wallets_per_session = _optional_int(
+        obj.get("max_watch_wallets_per_session"),
+        "limits.max_watch_wallets_per_session",
+    )
 
     return {
         "hi_capacity": _as_int(obj.get("hi_capacity"), "limits.hi_capacity"),
@@ -672,6 +764,9 @@ def _parse_limits(value: object) -> LimitsMsg:
         "max_sessions_per_api_key": 0
         if max_sessions_per_api_key is None
         else max_sessions_per_api_key,
+        "max_watch_wallets_per_session": 0
+        if max_watch_wallets_per_session is None
+        else max_watch_wallets_per_session,
     }
 
 
@@ -753,6 +848,19 @@ def _set_optional_int(
         obj[key] = parsed
 
 
+def _set_optional_bool(
+    obj: dict[str, object],
+    key: str,
+    value: object,
+    path: str,
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, bool):
+        raise ValueError(f"{path} must be a boolean")
+    obj[key] = value
+
+
 def _set_optional_str(
     obj: dict[str, object],
     key: str,
@@ -829,6 +937,7 @@ def _as_int(value: object, path: str) -> int:
 
 
 __all__ = [
+    "AutoBuyConfigMsg",
     "BalanceUpdateServerMessage",
     "ClientMessage",
     "ClosePositionClientMessage",
@@ -849,8 +958,11 @@ __all__ = [
     "StrategyConfigMsg",
     "TakeProfitLevelMsg",
     "TradeTickServerMessage",
+    "UpdatePositionStrategyClientMessage",
     "UpdateStrategyClientMessage",
     "UpdateWalletsClientMessage",
+    "UpdateWatchWalletsClientMessage",
+    "WatchWalletEntryMsg",
     "client_message_from_obj",
     "client_message_from_text",
     "client_message_to_text",

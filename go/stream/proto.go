@@ -101,7 +101,21 @@ type LimitsMsg struct {
 	MaxPositionsPerSession uint32 `json:"max_positions_per_session"`
 	MaxWalletsPerSession   uint32 `json:"max_wallets_per_session"`
 	MaxPositionsPerWallet  uint32 `json:"max_positions_per_wallet"`
-	MaxSessionsPerAPIKey   uint32 `json:"max_sessions_per_api_key"`
+	MaxSessionsPerAPIKey       uint32 `json:"max_sessions_per_api_key"`
+	MaxWatchWalletsPerSession  uint32 `json:"max_watch_wallets_per_session"`
+}
+
+// AutoBuyConfigMsg configures auto-buy parameters for a watched wallet.
+type AutoBuyConfigMsg struct {
+	WalletPubkey     string  `json:"wallet_pubkey"`
+	AmountQuoteUnits uint64  `json:"amount_quote_units"`
+	AmountUsd1Units  *uint64 `json:"amount_usd1_units,omitempty"`
+}
+
+// WatchWalletEntryMsg is a single watched wallet entry with optional auto-buy config.
+type WatchWalletEntryMsg struct {
+	Pubkey  string            `json:"pubkey"`
+	AutoBuy *AutoBuyConfigMsg `json:"auto_buy,omitempty"`
 }
 
 // ClientMessageType is the stream protocol discriminator for client messages.
@@ -113,7 +127,9 @@ const (
 	ClientMessageTypeUpdateStrategy    ClientMessageType = "update_strategy"
 	ClientMessageTypeClosePosition     ClientMessageType = "close_position"
 	ClientMessageTypeRequestExitSignal ClientMessageType = "request_exit_signal"
-	ClientMessageTypeUpdateWallets     ClientMessageType = "update_wallets"
+	ClientMessageTypeUpdateWallets      ClientMessageType = "update_wallets"
+	ClientMessageTypeUpdateWatchWallets      ClientMessageType = "update_watch_wallets"
+	ClientMessageTypeUpdatePositionStrategy ClientMessageType = "UpdatePositionStrategy"
 )
 
 // ClientMessage is a tagged client command payload.
@@ -130,10 +146,11 @@ func (PingClientMessage) ClientMessageType() ClientMessageType { return ClientMe
 
 // ConfigureClientMessage configures wallets and strategy after hello.
 type ConfigureClientMessage struct {
-	WalletPubkeys []string          `json:"wallet_pubkeys"`
-	Strategy      StrategyConfigMsg `json:"strategy"`
-	SendMode      *string           `json:"send_mode,omitempty"`
-	TipLamports   *uint64           `json:"tip_lamports,omitempty"`
+	WalletPubkeys []string              `json:"wallet_pubkeys"`
+	Strategy      StrategyConfigMsg     `json:"strategy"`
+	SendMode      *string               `json:"send_mode,omitempty"`
+	TipLamports   *uint64               `json:"tip_lamports,omitempty"`
+	WatchWallets  []WatchWalletEntryMsg `json:"watch_wallets,omitempty"`
 }
 
 func (ConfigureClientMessage) ClientMessageType() ClientMessageType {
@@ -177,6 +194,25 @@ type UpdateWalletsClientMessage struct {
 
 func (UpdateWalletsClientMessage) ClientMessageType() ClientMessageType {
 	return ClientMessageTypeUpdateWallets
+}
+
+// UpdateWatchWalletsClientMessage replaces the set of watched wallets for copy trading.
+type UpdateWatchWalletsClientMessage struct {
+	WatchWallets []WatchWalletEntryMsg `json:"watch_wallets"`
+}
+
+func (UpdateWatchWalletsClientMessage) ClientMessageType() ClientMessageType {
+	return ClientMessageTypeUpdateWatchWallets
+}
+
+// UpdatePositionStrategyClientMessage updates strategy parameters for a single position.
+type UpdatePositionStrategyClientMessage struct {
+	PositionID uint64            `json:"position_id"`
+	Strategy   StrategyConfigMsg `json:"strategy"`
+}
+
+func (UpdatePositionStrategyClientMessage) ClientMessageType() ClientMessageType {
+	return ClientMessageTypeUpdatePositionStrategy
 }
 
 // ServerMessageType is the stream protocol discriminator for server messages.
@@ -232,6 +268,7 @@ type PnlUpdateServerMessage struct {
 	ServerTimeMS    uint64  `json:"server_time_ms"`
 	TokenPriceQuote *uint64 `json:"token_price_quote,omitempty"`
 	MarketCapQuote  *uint64 `json:"market_cap_quote,omitempty"`
+	Watched         bool    `json:"watched,omitempty"`
 }
 
 func (PnlUpdateServerMessage) ServerMessageType() ServerMessageType {
@@ -270,6 +307,8 @@ type PositionOpenedServerMessage struct {
 	MarketCapQuote     *uint64           `json:"market_cap_quote,omitempty"`
 	PoolLiquidityQuote *uint64           `json:"pool_liquidity_quote,omitempty"`
 	OpenedAtMs         *uint64           `json:"opened_at_ms,omitempty"`
+	MirrorSource       *string           `json:"mirror_source,omitempty"`
+	Watched            bool              `json:"watched,omitempty"`
 }
 
 func (PositionOpenedServerMessage) ServerMessageType() ServerMessageType {
@@ -284,6 +323,8 @@ type PositionClosedServerMessage struct {
 	TokenAccount *string `json:"token_account,omitempty"`
 	Reason       string  `json:"reason"`
 	Slot         uint64  `json:"slot"`
+	MirrorSource *string `json:"mirror_source,omitempty"`
+	Watched      bool    `json:"watched,omitempty"`
 }
 
 func (PositionClosedServerMessage) ServerMessageType() ServerMessageType {
@@ -306,6 +347,8 @@ type ExitSignalWithTxServerMessage struct {
 	UnsignedTxB64  string            `json:"unsigned_tx_b64"`
 	SellTokens     *uint64           `json:"sell_tokens,omitempty"`
 	LevelIndex     *uint32           `json:"level_index,omitempty"`
+	MirrorSource   *string           `json:"mirror_source,omitempty"`
+	Watched        bool              `json:"watched,omitempty"`
 }
 
 func (ExitSignalWithTxServerMessage) ServerMessageType() ServerMessageType {
@@ -325,6 +368,7 @@ type LiquiditySnapshotServerMessage struct {
 	Bands          []SlippageBandMsg `json:"bands"`
 	LiquidityTrend string            `json:"liquidity_trend"`
 	ServerTimeMS   uint64            `json:"server_time_ms"`
+	Watched        bool              `json:"watched,omitempty"`
 }
 
 func (LiquiditySnapshotServerMessage) ServerMessageType() ServerMessageType {
@@ -341,6 +385,7 @@ type TradeTickServerMessage struct {
 	PriceQuote  uint64  `json:"price_quote"`
 	Maker       *string `json:"maker,omitempty"`
 	TxSignature *string `json:"tx_signature,omitempty"`
+	Watched     bool    `json:"watched,omitempty"`
 }
 
 func (TradeTickServerMessage) ServerMessageType() ServerMessageType {
@@ -392,6 +437,18 @@ func ClientMessageFromJSON(data []byte) (ClientMessage, error) {
 		var msg UpdateWalletsClientMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return nil, fmt.Errorf("decode update_wallets client message: %w", err)
+		}
+		return msg, nil
+	case string(ClientMessageTypeUpdateWatchWallets):
+		var msg UpdateWatchWalletsClientMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("decode update_watch_wallets client message: %w", err)
+		}
+		return msg, nil
+	case string(ClientMessageTypeUpdatePositionStrategy):
+		var msg UpdatePositionStrategyClientMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("decode UpdatePositionStrategy client message: %w", err)
 		}
 		return msg, nil
 	default:
@@ -517,6 +574,26 @@ func ClientMessageToJSON(message ClientMessage) ([]byte, error) {
 			UpdateWalletsClientMessage
 		}{Type: string(ClientMessageTypeUpdateWallets), UpdateWalletsClientMessage: msg})
 	case *UpdateWalletsClientMessage:
+		if msg == nil {
+			return nil, fmt.Errorf("client message cannot be nil")
+		}
+		return ClientMessageToJSON(*msg)
+	case UpdateWatchWalletsClientMessage:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			UpdateWatchWalletsClientMessage
+		}{Type: string(ClientMessageTypeUpdateWatchWallets), UpdateWatchWalletsClientMessage: msg})
+	case *UpdateWatchWalletsClientMessage:
+		if msg == nil {
+			return nil, fmt.Errorf("client message cannot be nil")
+		}
+		return ClientMessageToJSON(*msg)
+	case UpdatePositionStrategyClientMessage:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			UpdatePositionStrategyClientMessage
+		}{Type: string(ClientMessageTypeUpdatePositionStrategy), UpdatePositionStrategyClientMessage: msg})
+	case *UpdatePositionStrategyClientMessage:
 		if msg == nil {
 			return nil, fmt.Errorf("client message cannot be nil")
 		}
