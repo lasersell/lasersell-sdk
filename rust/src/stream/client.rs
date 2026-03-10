@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
 use tracing::{debug, info, trace, warn};
 
-use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg, TakeProfitLevelMsg};
+use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg, TakeProfitLevelMsg, WatchWalletEntryMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(2);
@@ -132,6 +132,8 @@ pub struct StreamConfigure {
     pub send_mode: Option<String>,
     /// Priority fee tip in lamports (required for some send modes).
     pub tip_lamports: Option<u64>,
+    /// External wallets to monitor for copy trading.
+    pub watch_wallets: Vec<WatchWalletEntryMsg>,
 }
 
 impl StreamConfigure {
@@ -143,6 +145,7 @@ impl StreamConfigure {
             deadline_timeout_sec: 0,
             send_mode: None,
             tip_lamports: None,
+            watch_wallets: Vec::new(),
         }
     }
 
@@ -162,6 +165,7 @@ impl StreamConfigure {
             deadline_timeout_sec: deadline_timeout_sec.unwrap_or(0),
             send_mode: None,
             tip_lamports: None,
+            watch_wallets: Vec::new(),
         }
     }
 }
@@ -456,6 +460,11 @@ impl StreamSender {
         self.send(ClientMessage::UpdateWallets { wallet_pubkeys })
     }
 
+    /// Replaces the set of watched wallets for copy trading.
+    pub fn update_watch_wallets(&self, watch_wallets: Vec<WatchWalletEntryMsg>) -> Result<(), StreamClientError> {
+        self.send(ClientMessage::UpdateWatchWallets { watch_wallets })
+    }
+
     /// Requests a position close by token account or position id.
     pub fn close_position<S>(&self, selector: S) -> Result<(), StreamClientError>
     where
@@ -686,6 +695,7 @@ async fn run_connected_session(
         strategy: configure.strategy.clone(),
         send_mode: configure.send_mode.clone(),
         tip_lamports: configure.tip_lamports,
+        watch_wallets: configure.watch_wallets.clone(),
     };
     send_client_message(&mut socket, &configure_msg).await?;
     debug!(event = "stream_configure_sent");
