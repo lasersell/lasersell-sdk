@@ -776,16 +776,7 @@ async fn run_connected_session(
     };
     debug!(event = "stream_ws_connected");
 
-    let first_server_message = recv_server_message_before_configure(&mut socket).await?;
-
-    if !matches!(&first_server_message, ServerMessage::HelloOk { .. }) {
-        return Err(StreamClientError::Protocol(
-            "expected first server message to be hello_ok".to_string(),
-        ));
-    }
-    debug!(event = "stream_hello_ok_received");
-    let _ = inbound_tx.send(first_server_message);
-
+    // Send configure immediately — server waits for it before sending hello_ok.
     let configure_msg = ClientMessage::Configure {
         wallet_pubkeys: configure.wallet_pubkeys.clone(),
         strategy: configure.strategy.clone(),
@@ -796,8 +787,20 @@ async fn run_connected_session(
     send_client_message(&mut socket, &configure_msg).await?;
     debug!(event = "stream_configure_sent");
 
-    let configured_message = recv_server_message_after_configure(&mut socket).await?;
-    let _ = inbound_tx.send(configured_message);
+    // Server responds with hello_ok after processing configure.
+    let hello_message = recv_server_message_before_configure(&mut socket).await?;
+
+    if !matches!(&hello_message, ServerMessage::HelloOk { .. }) {
+        let detail = match &hello_message {
+            ServerMessage::Error { code, message } => format!("server error [{code}]: {message}"),
+            other => format!("unexpected message: {}", serde_json::to_string(other).unwrap_or_else(|_| format!("{other:?}"))),
+        };
+        return Err(StreamClientError::Protocol(
+            format!("expected hello_ok after configure, got: {detail}"),
+        ));
+    }
+    debug!(event = "stream_hello_ok_received");
+    let _ = inbound_tx.send(hello_message);
     let _ = status_tx.send(StreamConnectionStatus::Connected);
     info!(event = "stream_configured");
 
@@ -909,41 +912,6 @@ where
             None => {
                 return Err(StreamClientError::Protocol(
                     "socket ended before hello_ok".to_string(),
-                ));
-            }
-        }
-    }
-}
-
-async fn recv_server_message_after_configure<S>(
-    socket: &mut tokio_tungstenite::WebSocketStream<S>,
-) -> Result<ServerMessage, StreamClientError>
-where
-    tokio_tungstenite::WebSocketStream<S>: futures_util::Sink<Message, Error = WsError>
-        + Stream<Item = Result<Message, WsError>>
-        + Unpin,
-{
-    loop {
-        match socket.next().await {
-            Some(Ok(Message::Text(text))) => return parse_server_message(&text),
-            Some(Ok(Message::Ping(payload))) => {
-                socket.send(Message::Pong(payload)).await?;
-            }
-            Some(Ok(Message::Pong(_))) => {}
-            Some(Ok(Message::Close(_))) => {
-                return Err(StreamClientError::Protocol(
-                    "socket closed before configure acknowledgement".to_string(),
-                ));
-            }
-            Some(Ok(_)) => {
-                return Err(StreamClientError::Protocol(
-                    "received non-text frame before configure acknowledgement".to_string(),
-                ));
-            }
-            Some(Err(err)) => return Err(StreamClientError::WebSocket(err)),
-            None => {
-                return Err(StreamClientError::Protocol(
-                    "socket ended before configure acknowledgement".to_string(),
                 ));
             }
         }

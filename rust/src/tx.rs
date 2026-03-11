@@ -33,11 +33,11 @@ pub const HELIUS_SENDER_PING_URL: &str = concat!(helius_sender_base_url!(), "/pi
 /// Default Astralane Iris region (Frankfurt).
 pub const ASTRALANE_DEFAULT_REGION: &str = "fr";
 
-/// Solana mainnet-beta public RPC endpoint.
+/// Default public Solana RPC endpoint.
 ///
 /// This is rate-limited and intended for getting started only.
 /// For production use, get a free private RPC from Helius or Chainstack.
-pub const MAINNET_BETA_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const MAINNET_BETA_RPC_URL: &str = "https://solana-rpc.publicnode.com";
 
 /// Builds the Astralane Iris endpoint URL for a given region.
 ///

@@ -546,21 +546,7 @@ func (w *streamConnectionWorker) runConnectedSession(
 	}
 	defer conn.CloseNow()
 
-	firstServerMessage, err := readServerMessage(w.ctx, conn)
-	if err != nil {
-		if w.ctx.Err() != nil {
-			return sessionOutcomeGracefulShutdown, nil
-		}
-		return sessionOutcomeGracefulShutdown, err
-	}
-
-	if _, ok := firstServerMessage.(HelloOkServerMessage); !ok {
-		return sessionOutcomeGracefulShutdown, protocolError("expected first server message to be hello_ok")
-	}
-	if !w.pushInbound(firstServerMessage) {
-		return sessionOutcomeGracefulShutdown, nil
-	}
-
+	// Send configure immediately — server waits for it before sending hello_ok.
 	configureMessage := ConfigureClientMessage{
 		WalletPubkeys: append([]string(nil), w.configure.WalletPubkeys...),
 		Strategy:      w.configure.Strategy,
@@ -575,14 +561,18 @@ func (w *streamConnectionWorker) runConnectedSession(
 		return sessionOutcomeGracefulShutdown, err
 	}
 
-	configuredMessage, err := readServerMessage(w.ctx, conn)
+	// Server responds with hello_ok after processing configure.
+	helloMessage, err := readServerMessage(w.ctx, conn)
 	if err != nil {
 		if w.ctx.Err() != nil {
 			return sessionOutcomeGracefulShutdown, nil
 		}
 		return sessionOutcomeGracefulShutdown, err
 	}
-	if !w.pushInbound(configuredMessage) {
+	if _, ok := helloMessage.(HelloOkServerMessage); !ok {
+		return sessionOutcomeGracefulShutdown, protocolError("expected hello_ok after configure")
+	}
+	if !w.pushInbound(helloMessage) {
 		return sessionOutcomeGracefulShutdown, nil
 	}
 

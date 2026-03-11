@@ -26,12 +26,12 @@ export function astralaneIrisUrl(region: string): string {
 }
 
 /**
- * Solana mainnet-beta public RPC endpoint.
+ * Default public Solana RPC endpoint.
  *
  * Rate-limited and intended for getting started only.
  * For production, use a private RPC from Helius or Chainstack (free tiers available).
  */
-export const MAINNET_BETA_RPC_URL = "https://api.mainnet-beta.solana.com";
+export const MAINNET_BETA_RPC_URL = "https://solana-rpc.publicnode.com";
 
 /** Unified send target that selects the transaction submission endpoint. */
 export type SendTarget =

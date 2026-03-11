@@ -720,14 +720,7 @@ class StreamConnectionWorker {
     this.currentSocket = socket;
 
     try {
-      const firstServerMessage = await recvServerMessageBeforeConfigure(socket, frames);
-      if (firstServerMessage.type !== "hello_ok") {
-        throw StreamClientError.protocol(
-          "expected first server message to be hello_ok",
-        );
-      }
-      this.pushInbound(firstServerMessage);
-
+      // Send configure immediately — server waits for it before sending hello_ok.
       const configureMessage: ConfigureClientMessage = {
         type: "configure",
         wallet_pubkeys: [...this.configure.wallet_pubkeys],
@@ -744,8 +737,14 @@ class StreamConnectionWorker {
       }
       await sendClientMessage(socket, configureMessage);
 
-      const configuredMessage = await recvServerMessageAfterConfigure(socket, frames);
-      this.pushInbound(configuredMessage);
+      // Server responds with hello_ok after processing configure.
+      const helloMessage = await recvServerMessageBeforeConfigure(socket, frames);
+      if (helloMessage.type !== "hello_ok") {
+        throw StreamClientError.protocol(
+          "expected hello_ok after configure, got: " + helloMessage.type,
+        );
+      }
+      this.pushInbound(helloMessage);
 
       if (!this.readySettled) {
         this.readySettled = true;
@@ -1003,48 +1002,6 @@ async function recvServerMessageBeforeConfigure(
       case "binary": {
         throw StreamClientError.protocol(
           "received non-text frame before hello_ok",
-        );
-      }
-      default: {
-        const _unreachable: never = frame;
-        throw _unreachable;
-      }
-    }
-  }
-}
-
-async function recvServerMessageAfterConfigure(
-  socket: WebSocket,
-  frames: WebSocketFrameQueue,
-): Promise<ServerMessage> {
-  while (true) {
-    const frame = await frames.waitNext();
-    switch (frame.kind) {
-      case "text": {
-        try {
-          return serverMessageFromText(frame.text);
-        } catch (error) {
-          throw StreamClientError.json(error);
-        }
-      }
-      case "ping": {
-        socket.pong(frame.payload);
-        break;
-      }
-      case "pong": {
-        break;
-      }
-      case "close": {
-        throw StreamClientError.protocol(
-          "socket closed before configure acknowledgement",
-        );
-      }
-      case "error": {
-        throw StreamClientError.websocket(frame.error);
-      }
-      case "binary": {
-        throw StreamClientError.protocol(
-          "received non-text frame before configure acknowledgement",
         );
       }
       default: {

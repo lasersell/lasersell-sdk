@@ -430,11 +430,7 @@ class StreamConnectionWorker:
         self._current_socket = socket
 
         try:
-            first_server_message = await _recv_server_message_before_configure(socket)
-            if first_server_message.get("type") != "hello_ok":
-                raise StreamClientError.protocol("expected first server message to be hello_ok")
-            self._inbound.push(first_server_message)
-
+            # Send configure immediately — server waits for it before sending hello_ok.
             configure_message: ClientMessage = {
                 "type": "configure",
                 "wallet_pubkeys": list(self._configure.wallet_pubkeys),
@@ -448,8 +444,13 @@ class StreamConnectionWorker:
                 configure_message["watch_wallets"] = list(self._configure.watch_wallets)
             await _send_client_message(socket, configure_message)
 
-            configured_message = await _recv_server_message_after_configure(socket)
-            self._inbound.push(configured_message)
+            # Server responds with hello_ok after processing configure.
+            hello_message = await _recv_server_message_before_configure(socket)
+            if hello_message.get("type") != "hello_ok":
+                raise StreamClientError.protocol(
+                    f"expected hello_ok after configure, got: {hello_message.get('type')}"
+                )
+            self._inbound.push(hello_message)
 
             if not self._ready.done():
                 self._ready.set_result(None)
@@ -566,24 +567,6 @@ async def _recv_server_message_before_configure(socket: Any) -> ServerMessage:
                 raise StreamClientError.json(error) from error
 
         raise StreamClientError.protocol("received non-text frame before hello_ok")
-
-
-async def _recv_server_message_after_configure(socket: Any) -> ServerMessage:
-    while True:
-        try:
-            frame = await socket.recv()
-        except Exception as error:
-            raise StreamClientError.websocket(error) from error
-
-        if isinstance(frame, str):
-            try:
-                return server_message_from_text(frame)
-            except ValueError as error:
-                raise StreamClientError.json(error) from error
-
-        raise StreamClientError.protocol(
-            "received non-text frame before configure acknowledgement"
-        )
 
 
 async def _send_client_message(socket: Any, message: ClientMessage) -> None:

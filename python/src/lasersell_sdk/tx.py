@@ -19,7 +19,7 @@ HELIUS_SENDER_FAST_URL = "https://sender.helius-rpc.com/fast"
 
 ASTRALANE_DEFAULT_REGION = "fr"
 
-MAINNET_BETA_RPC_URL = "https://api.mainnet-beta.solana.com"
+MAINNET_BETA_RPC_URL = "https://solana-rpc.publicnode.com"
 
 
 def astralane_iris_url(region: str) -> str:

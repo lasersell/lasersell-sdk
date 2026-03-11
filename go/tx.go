@@ -22,9 +22,9 @@ const (
 	HeliusSenderFastURL = "https://sender.helius-rpc.com/fast"
 	// AstralaneDefaultRegion is the default Astralane Iris region (Frankfurt).
 	AstralaneDefaultRegion = "fr"
-	// MainnetBetaRpcURL is the Solana mainnet-beta public RPC endpoint.
+	// MainnetBetaRpcURL is the default public Solana RPC endpoint.
 	// Rate-limited; use a private RPC for production (free tiers from Helius, Chainstack).
-	MainnetBetaRpcURL = "https://api.mainnet-beta.solana.com"
+	MainnetBetaRpcURL = "https://solana-rpc.publicnode.com"
 )
 
 // AstralaneIrisURL builds the Astralane Iris endpoint URL for a given region.
