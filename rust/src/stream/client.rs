@@ -96,7 +96,7 @@ impl StreamClient {
             Ok(Ok(())) => Ok(StreamConnection {
                 sender: StreamSender { tx: outbound_tx },
                 receiver: inbound_rx,
-                status: status_rx,
+                status: Some(status_rx),
             }),
             Ok(Err(err)) => Err(err),
             Err(_) => Err(StreamClientError::Protocol(
@@ -330,7 +330,7 @@ pub enum StreamConnectionStatus {
 pub struct StreamConnection {
     sender: StreamSender,
     receiver: mpsc::UnboundedReceiver<ServerMessage>,
-    status: mpsc::UnboundedReceiver<StreamConnectionStatus>,
+    status: Option<mpsc::UnboundedReceiver<StreamConnectionStatus>>,
 }
 
 impl StreamConnection {
@@ -353,7 +353,13 @@ impl StreamConnection {
         mpsc::UnboundedReceiver<ServerMessage>,
         mpsc::UnboundedReceiver<StreamConnectionStatus>,
     ) {
-        (self.sender, self.receiver, self.status)
+        (self.sender, self.receiver, self.status.unwrap_or_else(|| mpsc::unbounded_channel().1))
+    }
+
+    /// Takes the status channel receiver, leaving `None` in its place.
+    /// Can only be called once — subsequent calls return `None`.
+    pub fn take_status(&mut self) -> Option<mpsc::UnboundedReceiver<StreamConnectionStatus>> {
+        self.status.take()
     }
 
     /// Receives the next server message from the stream worker.
@@ -374,7 +380,7 @@ impl StreamConnection {
         let (high_tx, high_rx) = mpsc::unbounded_channel();
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
 
-        let _status = self.status;
+        let _status = self.status; // Intentionally dropped — lanes don't use status
         let mut receiver = self.receiver;
         tokio::spawn(async move {
             while let Some(message) = receiver.recv().await {

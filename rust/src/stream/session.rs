@@ -13,12 +13,30 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, info};
 
+use tokio::sync::mpsc;
+
 use crate::stream::client::{
     strategy_config_from_optional, validate_strategy_thresholds, IntoPositionSelector,
     PositionSelector, StreamClient, StreamClientError, StreamConfigure, StreamConnection,
     StreamSender,
 };
 use crate::stream::proto::{ServerMessage, StrategyConfigMsg};
+
+/// Internal receiver mode for `StreamSession`.
+#[derive(Debug)]
+enum SessionReceiver {
+    /// Single-channel mode (default).
+    Direct(StreamConnection),
+    /// Priority lanes: high-priority (exit signals, opens, closes) processed
+    /// before low-priority (PnL updates).
+    Lanes {
+        sender: StreamSender,
+        high: mpsc::UnboundedReceiver<ServerMessage>,
+        low: mpsc::Receiver<ServerMessage>,
+    },
+    /// Transient state during `enable_lanes()`. Never observed externally.
+    Transitioning,
+}
 
 /// Snapshot of a tracked stream position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,7 +141,7 @@ pub enum StreamEvent {
 /// Stateful wrapper around a stream connection.
 #[derive(Debug)]
 pub struct StreamSession {
-    connection: StreamConnection,
+    receiver: SessionReceiver,
     positions: HashMap<u64, PositionHandle>,
     liquidity_cache: HashMap<u64, ServerMessage>,
     strategy: StrategyConfigMsg,
@@ -162,7 +180,7 @@ impl StreamSession {
         deadline_timeout_sec: u64,
     ) -> Self {
         Self {
-            connection,
+            receiver: SessionReceiver::Direct(connection),
             positions: HashMap::new(),
             liquidity_cache: HashMap::new(),
             strategy,
@@ -173,9 +191,35 @@ impl StreamSession {
         }
     }
 
+    /// Enables priority lanes, splitting inbound messages into high-priority
+    /// (exit signals, position opens/closes, balance updates, errors) and
+    /// low-priority (PnL updates) channels.
+    ///
+    /// After calling this, [`recv`](Self::recv) will always drain all pending
+    /// high-priority messages before returning a low-priority one.
+    ///
+    /// `low_capacity` controls how many PnL updates to buffer; excess updates
+    /// are silently dropped.
+    pub fn enable_lanes(&mut self, low_capacity: usize) {
+        let prev = std::mem::replace(&mut self.receiver, SessionReceiver::Transitioning);
+        let SessionReceiver::Direct(connection) = prev else {
+            // Already in lanes mode (or somehow transitioning) — restore.
+            self.receiver = prev;
+            return;
+        };
+
+        let lanes = connection.into_lanes(low_capacity);
+        let (sender, high, low) = lanes.split();
+        self.receiver = SessionReceiver::Lanes { sender, high, low };
+    }
+
     /// Returns a cloneable sender for outbound stream commands.
     pub fn sender(&self) -> StreamSender {
-        self.connection.sender()
+        match &self.receiver {
+            SessionReceiver::Direct(conn) => conn.sender(),
+            SessionReceiver::Lanes { sender, .. } => sender.clone(),
+            SessionReceiver::Transitioning => unreachable!("sender() called during transition"),
+        }
     }
 
     /// Returns all currently tracked positions.
@@ -239,6 +283,20 @@ impl StreamSession {
         self.sender().request_exit_signal(handle, slippage_bps)
     }
 
+    /// Takes the connection status channel from the underlying connection.
+    /// Can only be called once — subsequent calls return `None`.
+    /// Must be called **before** `enable_lanes()` (lanes mode drops the status
+    /// channel).
+    pub fn take_status_channel(
+        &mut self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<crate::stream::client::StreamConnectionStatus>>
+    {
+        match &mut self.receiver {
+            SessionReceiver::Direct(conn) => conn.take_status(),
+            SessionReceiver::Lanes { .. } | SessionReceiver::Transitioning => None,
+        }
+    }
+
     /// Updates strategy parameters and reschedules local deadline timers.
     pub fn update_strategy(
         &mut self,
@@ -284,8 +342,22 @@ impl StreamSession {
     }
 
     /// Receives the next message and maps it into a typed [`StreamEvent`].
+    ///
+    /// When priority lanes are enabled, high-priority messages (exit signals,
+    /// position events, errors) are always returned before low-priority ones
+    /// (PnL updates).
     pub async fn recv(&mut self) -> Option<StreamEvent> {
-        let message = self.connection.recv().await?;
+        let message = match &mut self.receiver {
+            SessionReceiver::Direct(conn) => conn.recv().await?,
+            SessionReceiver::Lanes { high, low, .. } => {
+                tokio::select! {
+                    biased;
+                    msg = high.recv() => msg?,
+                    msg = low.recv() => msg?,
+                }
+            }
+            SessionReceiver::Transitioning => return None,
+        };
         Some(self.apply_message(message))
     }
 
