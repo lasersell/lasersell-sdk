@@ -3,6 +3,7 @@ package lasersell
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	solana "github.com/gagliardetto/solana-go"
 	"github.com/lasersell/lasersell-sdk/go/stream"
 )
 
@@ -283,6 +285,93 @@ func (c *ExitAPIClient) BuildBuyTx(
 		request.Input = &sol
 	}
 	return c.buildTx(ctx, "/v1/buy", request)
+}
+
+// RegisterWallet registers a wallet with the LaserSell API.
+//
+// Proves you own the wallet by signing a timestamped message locally.
+// Must be called at least once per wallet before connecting to the stream.
+// Duplicate registrations are safe (the server upserts).
+//
+// # What is sent to LaserSell servers
+//
+// Only the public key, a plaintext message, and the ed25519 signature
+// are transmitted. Your private key never leaves this process.
+//
+//	POST /v1/wallets/register
+//	{
+//	  "wallet_pubkey": "<your public key>",
+//	  "signature":     "<ed25519 signature of the message below>",
+//	  "message":       "lasersell-register:<public_key>:<unix_timestamp>"
+//	}
+//
+// The server verifies the signature against the public key to confirm
+// ownership. The timestamp expires after 5 minutes to prevent replay.
+func (c *ExitAPIClient) RegisterWallet(
+	ctx context.Context,
+	privateKey solana.PrivateKey,
+	label *string,
+) error {
+	// Derive the public key. Only the public key is sent to the server.
+	pubkey := privateKey.PublicKey()
+	walletPubkey := pubkey.String()
+
+	timestamp := time.Now().Unix()
+
+	// The message is a plaintext string that the server can verify.
+	// It contains only the public key and a timestamp — no secrets.
+	message := fmt.Sprintf("lasersell-register:%s:%d", walletPubkey, timestamp)
+
+	// Sign the message locally. The private key is used here but is
+	// never serialized or transmitted — only the resulting signature is sent.
+	sigBytes := ed25519.Sign(ed25519.PrivateKey(privateKey), []byte(message))
+	signature := solana.SignatureFromBytes(sigBytes).String()
+
+	// This is the complete request body. You can verify that no private
+	// key material is included — only the public key, signature, and message.
+	body := map[string]string{
+		"wallet_pubkey": walletPubkey,
+		"signature":     signature,
+		"message":       message,
+	}
+	if label != nil {
+		body["label"] = *label
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return &ExitAPIError{Kind: ExitAPIErrorParse, Detail: "failed to encode request body", Err: err}
+	}
+
+	attemptCtx, cancel := context.WithTimeout(ctx, c.attemptTimeout)
+	defer cancel()
+
+	endpoint := c.endpoint("/v1/wallets/register")
+	httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return &ExitAPIError{Kind: ExitAPIErrorTransport, Err: err}
+	}
+	httpReq.Header.Set("content-type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("x-api-key", c.apiKey)
+	}
+
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return &ExitAPIError{Kind: ExitAPIErrorTransport, Err: err}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return &ExitAPIError{
+			Kind:       ExitAPIErrorHTTPStatus,
+			StatusCode: resp.StatusCode,
+			Body:       summarizeErrorBody(respBody),
+		}
+	}
+
+	return nil
 }
 
 func (c *ExitAPIClient) buildTx(

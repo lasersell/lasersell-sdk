@@ -291,6 +291,90 @@ class ExitApiClient:
 
         return await self._build_tx("/v1/buy", request.to_payload())
 
+    async def register_wallet(
+        self,
+        keypair: object,
+        label: str | None = None,
+    ) -> None:
+        """Registers a wallet with the LaserSell API.
+
+        Proves you own the wallet by signing a timestamped message locally.
+        Must be called at least once per wallet before connecting to the stream.
+        Duplicate registrations are safe (the server upserts).
+
+        Expects a ``solders.keypair.Keypair`` instance.
+
+        What is sent to LaserSell servers
+        ----------------------------------
+        Only the **public key**, a plaintext message, and the ed25519
+        **signature** are transmitted. Your private key never leaves this
+        process.
+
+        .. code-block:: text
+
+            POST /v1/wallets/register
+            {
+              "wallet_pubkey": "<your public key>",
+              "signature":     "<ed25519 signature of the message below>",
+              "message":       "lasersell-register:<public_key>:<unix_timestamp>"
+            }
+
+        The server verifies the signature against the public key to confirm
+        ownership. The timestamp expires after 5 minutes to prevent replay.
+        """
+        import time
+
+        try:
+            from solders.keypair import Keypair as SoldersKeypair  # type: ignore[import-not-found]
+        except ModuleNotFoundError as error:
+            raise ExitApiError(
+                "transport",
+                "solders is required for wallet registration. Install with `pip install lasersell-sdk[tx]`",
+            ) from error
+
+        if not isinstance(keypair, SoldersKeypair):
+            raise TypeError(f"expected solders.keypair.Keypair, got {type(keypair).__name__}")
+
+        # Derive the public key. Only the public key is sent to the server.
+        wallet_pubkey = str(keypair.pubkey())
+
+        timestamp = int(time.time())
+
+        # The message is a plaintext string that the server can verify.
+        # It contains only the public key and a timestamp — no secrets.
+        message = f"lasersell-register:{wallet_pubkey}:{timestamp}"
+
+        # Sign the message locally. The private key is used here but is
+        # never serialized or transmitted — only the resulting signature is sent.
+        sig = keypair.sign_message(message.encode("utf-8"))
+
+        # This is the complete request body. You can verify that no private
+        # key material is included — only the public key, signature, and message.
+        body: dict[str, object] = {
+            "wallet_pubkey": wallet_pubkey,
+            "signature": str(sig),
+            "message": message,
+        }
+        if label is not None:
+            body["label"] = label
+
+        endpoint = self._endpoint("/v1/wallets/register")
+        headers = {"content-type": "application/json"}
+        if self._api_key is not None:
+            headers["x-api-key"] = self._api_key
+
+        timeout_s = max(self._connect_timeout_s, self._attempt_timeout_s)
+
+        try:
+            status, resp_body = await asyncio.to_thread(
+                self._post_json, endpoint, body, headers, timeout_s,
+            )
+        except _TransportError as error:
+            raise ExitApiError.transport(error.error) from error.error
+
+        if not (200 <= status < 300):
+            raise ExitApiError.http_status(status, summarize_error_body(resp_body))
+
     async def _build_tx(self, path: str, payload: dict[str, object]) -> BuildTxResponse:
         endpoint = self._endpoint(path)
 

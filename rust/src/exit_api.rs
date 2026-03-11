@@ -3,12 +3,13 @@
 //! The Exit API builds unsigned buy/sell transactions that can be signed and
 //! submitted by the caller.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::{Client, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use solana_sdk::signer::Signer;
 use thiserror::Error;
 
 use tracing::{debug, warn};
@@ -179,6 +180,86 @@ impl ExitApiClient {
         request: &BuildBuyTxRequest,
     ) -> Result<BuildTxResponse, ExitApiError> {
         self.build_tx("/v1/buy", request).await
+    }
+
+    /// Registers a wallet with the LaserSell API.
+    ///
+    /// This proves you own the wallet by signing a timestamped message locally.
+    /// Must be called at least once per wallet before connecting to the stream.
+    /// Duplicate registrations are safe (the server upserts).
+    ///
+    /// # What is sent to LaserSell servers
+    ///
+    /// Only the **public key**, a plaintext message, and the ed25519 **signature**
+    /// are transmitted. Your private key never leaves this process.
+    ///
+    /// ```text
+    /// POST /v1/wallets/register
+    /// {
+    ///   "wallet_pubkey": "<your public key>",
+    ///   "signature":     "<ed25519 signature of the message below>",
+    ///   "message":       "lasersell-register:<public_key>:<unix_timestamp>"
+    /// }
+    /// ```
+    ///
+    /// The server verifies the signature against the public key to confirm
+    /// ownership. The timestamp expires after 5 minutes to prevent replay.
+    pub async fn register_wallet(
+        &self,
+        keypair: &solana_sdk::signature::Keypair,
+        label: Option<&str>,
+    ) -> Result<(), ExitApiError> {
+        // Derive the public key. Only the public key is sent to the server.
+        let wallet_pubkey = keypair.pubkey().to_string();
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        // The message is a plaintext string that the server can verify.
+        // It contains only the public key and a timestamp — no secrets.
+        let message = format!("lasersell-register:{wallet_pubkey}:{timestamp}");
+
+        // Sign the message locally. The private key is used here but is
+        // never serialized or transmitted — only the resulting signature is sent.
+        let signature = keypair.sign_message(message.as_bytes());
+
+        // This is the complete request body. You can verify that no private
+        // key material is included — only the public key, signature, and message.
+        let mut body = serde_json::json!({
+            "wallet_pubkey": wallet_pubkey,
+            "signature": signature.to_string(),
+            "message": message,
+        });
+        if let Some(label) = label {
+            body["label"] = serde_json::Value::String(label.to_string());
+        }
+
+        let endpoint = self.endpoint("/v1/wallets/register");
+        let mut builder = self
+            .http
+            .post(&endpoint)
+            .timeout(self.attempt_timeout)
+            .json(&body);
+
+        if let Some(api_key) = self.api_key.as_ref() {
+            builder = builder.header("x-api-key", api_key.expose_secret());
+        }
+
+        let response = builder.send().await.map_err(ExitApiError::Transport)?;
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = response.text().await.map_err(ExitApiError::Transport)?;
+            return Err(ExitApiError::HttpStatus {
+                status,
+                body: summarize_error_body(&body),
+            });
+        }
+
+        debug!(event = "wallet_registered", wallet = %wallet_pubkey);
+        Ok(())
     }
 
     async fn build_tx<T>(&self, path: &str, request: &T) -> Result<BuildTxResponse, ExitApiError>

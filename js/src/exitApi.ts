@@ -1,3 +1,5 @@
+import { type Signer } from "@solana/web3.js";
+import { ed25519 } from "@noble/curves/ed25519";
 import {
   LOW_LATENCY_RETRY_POLICY,
   retryAsync,
@@ -254,6 +256,89 @@ export class ExitApiClient {
     });
   }
 
+  /**
+   * Registers a wallet with the LaserSell API.
+   *
+   * Proves you own the wallet by signing a timestamped message locally.
+   * Must be called at least once per wallet before connecting to the stream.
+   * Duplicate registrations are safe (the server upserts).
+   *
+   * ## What is sent to LaserSell servers
+   *
+   * Only the **public key**, a plaintext message, and the ed25519 **signature**
+   * are transmitted. Your private key never leaves this process.
+   *
+   * ```
+   * POST /v1/wallets/register
+   * {
+   *   "wallet_pubkey": "<your public key>",
+   *   "signature":     "<ed25519 signature of the message below>",
+   *   "message":       "lasersell-register:<public_key>:<unix_timestamp>"
+   * }
+   * ```
+   *
+   * The server verifies the signature against the public key to confirm
+   * ownership. The timestamp expires after 5 minutes to prevent replay.
+   */
+  async registerWallet(signer: Signer, label?: string): Promise<void> {
+    // Derive the public key. Only the public key is sent to the server.
+    const walletPubkey = signer.publicKey.toBase58();
+
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // The message is a plaintext string that the server can verify.
+    // It contains only the public key and a timestamp — no secrets.
+    const message = `lasersell-register:${walletPubkey}:${timestamp}`;
+    const messageBytes = new TextEncoder().encode(message);
+
+    // Sign the message locally. The private key is used here but is
+    // never serialized or transmitted — only the resulting signature is sent.
+    const sigBytes = ed25519.sign(messageBytes, signer.secretKey.slice(0, 32));
+    const signature = encodeBase58(sigBytes);
+
+    // This is the complete request body. You can verify that no private
+    // key material is included — only the public key, signature, and message.
+    const body: Record<string, string> = {
+      wallet_pubkey: walletPubkey,
+      signature,
+      message,
+    };
+    if (label !== undefined) {
+      body.label = label;
+    }
+
+    const endpoint = this.endpoint("/v1/wallets/register");
+    const timeoutMs = Math.max(this.connectTimeoutMs, this.attemptTimeoutMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      if (this.apiKey !== undefined) {
+        headers["x-api-key"] = this.apiKey;
+      }
+
+      const response = await this.fetchImpl(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw ExitApiError.httpStatus(response.status, summarizeErrorBody(text));
+      }
+    } catch (error) {
+      if (error instanceof ExitApiError) throw error;
+      throw ExitApiError.transport(error);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async buildTx<T extends object>(
     path: string,
     request: T,
@@ -425,6 +510,34 @@ function stringifyError(error: unknown): string {
     return `${error.name}: ${error.message}`;
   }
   return String(error);
+}
+
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function encodeBase58(bytes: Uint8Array): string {
+  const digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j]! << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let result = "";
+  for (const b of bytes) {
+    if (b !== 0) break;
+    result += "1";
+  }
+  for (let i = digits.length - 1; i >= 0; i--) {
+    result += BASE58_ALPHABET[digits[i]!];
+  }
+  return result;
 }
 
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
