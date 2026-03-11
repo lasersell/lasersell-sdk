@@ -11,3 +11,5 @@ pub mod client;
 pub mod proto;
 /// Session wrapper that tracks positions and emits typed events.
 pub mod session;
+/// TLS certificate pinning for stream connections.
+pub(crate) mod tls;

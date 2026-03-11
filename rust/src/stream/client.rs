@@ -10,7 +10,7 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::connect_async;
+use tokio_tungstenite::{connect_async, connect_async_tls_with_config, Connector};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
@@ -34,6 +34,7 @@ pub struct StreamClient {
     api_key: SecretString,
     local: bool,
     endpoint_override: Option<String>,
+    spki_pins: Option<Vec<String>>,
 }
 
 impl StreamClient {
@@ -43,6 +44,7 @@ impl StreamClient {
             api_key,
             local: false,
             endpoint_override: None,
+            spki_pins: None,
         }
     }
 
@@ -58,6 +60,16 @@ impl StreamClient {
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         let endpoint = endpoint.into();
         self.endpoint_override = Some(endpoint.trim_end().to_string());
+        self
+    }
+
+    /// Enables TLS certificate pinning for the WebSocket connection.
+    ///
+    /// `spki_sha256_b64` are base64-encoded SHA-256 hashes of intermediate CA
+    /// SubjectPublicKeyInfo (SPKI) fields. At least one certificate in the
+    /// server's chain must match for the connection to succeed.
+    pub fn with_spki_pins(mut self, spki_sha256_b64: Vec<String>) -> Self {
+        self.spki_pins = Some(spki_sha256_b64);
         self
     }
 
@@ -78,6 +90,10 @@ impl StreamClient {
 
         let url = self.endpoint().to_string();
         let api_key = self.api_key.clone();
+        let tls_connector = self.spki_pins.as_ref().map(|pins| {
+            let config = super::tls::build_pinned_tls_config(pins);
+            Connector::Rustls(std::sync::Arc::new(config))
+        });
 
         tokio::spawn(async move {
             stream_connection_worker(
@@ -88,6 +104,7 @@ impl StreamClient {
                 inbound_tx,
                 status_tx,
                 ready_tx,
+                tls_connector,
             )
             .await;
         });
@@ -680,6 +697,7 @@ async fn stream_connection_worker(
     inbound_tx: mpsc::UnboundedSender<ServerMessage>,
     status_tx: mpsc::UnboundedSender<StreamConnectionStatus>,
     ready_tx: oneshot::Sender<Result<(), StreamClientError>>,
+    tls_connector: Option<Connector>,
 ) {
     let mut ready_tx = Some(ready_tx);
     let mut pending = VecDeque::new();
@@ -697,6 +715,7 @@ async fn stream_connection_worker(
             &status_tx,
             &mut pending,
             &mut ready_tx,
+            tls_connector.clone(),
         )
         .await
         {
@@ -744,12 +763,17 @@ async fn run_connected_session(
     status_tx: &mpsc::UnboundedSender<StreamConnectionStatus>,
     pending: &mut VecDeque<ClientMessage>,
     ready_tx: &mut Option<oneshot::Sender<Result<(), StreamClientError>>>,
+    tls_connector: Option<Connector>,
 ) -> Result<SessionOutcome, StreamClientError> {
     let mut request = url.into_client_request()?;
     let api_key_header = api_key.expose_secret().parse()?;
     request.headers_mut().insert("x-api-key", api_key_header);
 
-    let (mut socket, _) = connect_async(request).await?;
+    let (mut socket, _) = if let Some(connector) = tls_connector {
+        connect_async_tls_with_config(request, None, false, Some(connector)).await?
+    } else {
+        connect_async(request).await?
+    };
     debug!(event = "stream_ws_connected");
 
     let first_server_message = recv_server_message_before_configure(&mut socket).await?;
