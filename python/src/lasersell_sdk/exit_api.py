@@ -16,6 +16,55 @@ from .stream.session import PositionHandle
 
 ERROR_BODY_SNIPPET_LEN = 220
 
+
+@dataclass(slots=True, frozen=True)
+class WalletProof:
+    """Proof of wallet ownership generated locally without any network calls.
+
+    Created by :func:`prove_ownership`. Contains only the public key, a signed
+    message, and the signature. No private key material is included.
+    """
+
+    wallet_pubkey: str
+    signature: str
+    message: str
+
+
+def prove_ownership(keypair: object) -> WalletProof:
+    """Proves wallet ownership by signing a timestamped message locally.
+
+    This is a pure local operation — no network calls are made. Pass the
+    returned proof to :meth:`ExitApiClient.register_wallet` or
+    :meth:`StreamClient.connect_with_wallets`.
+
+    The proof expires after 5 minutes (enforced server-side).
+
+    Expects a ``solders.keypair.Keypair`` instance.
+    """
+    import time
+
+    try:
+        from solders.keypair import Keypair as SoldersKeypair  # type: ignore[import-not-found]
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "solders is required for wallet proof. Install with `pip install lasersell-sdk[tx]`",
+        ) from error
+
+    if not isinstance(keypair, SoldersKeypair):
+        raise TypeError(f"expected solders.keypair.Keypair, got {type(keypair).__name__}")
+
+    wallet_pubkey = str(keypair.pubkey())
+    timestamp = int(time.time())
+    message = f"lasersell-register:{wallet_pubkey}:{timestamp}"
+    sig = keypair.sign_message(message.encode())
+    signature = str(sig)
+
+    return WalletProof(
+        wallet_pubkey=wallet_pubkey,
+        signature=signature,
+        message=message,
+    )
+
 EXIT_API_BASE_URL = "https://api.lasersell.io"
 LOCAL_EXIT_API_BASE_URL = "http://localhost:8080"
 
@@ -237,6 +286,28 @@ class ExitApiClient:
     ) -> "ExitApiClient":
         return cls(api_key=api_key, options=options)
 
+    @classmethod
+    async def connect(
+        cls,
+        api_key: str,
+        proofs: list[WalletProof],
+        options: ExitApiClientOptions | None = None,
+    ) -> "ExitApiClient":
+        """Creates a client and registers all provided wallets in one step.
+
+        Generate proofs with :func:`prove_ownership` first — a pure local
+        operation that never touches the network.
+
+        Example::
+
+            proof = prove_ownership(wallet_keypair)
+            client = await ExitApiClient.connect("your-api-key", [proof])
+        """
+        client = cls(api_key=api_key, options=options)
+        for proof in proofs:
+            await client.register_wallet(proof)
+        return client
+
     def with_local_mode(self, local: bool) -> "ExitApiClient":
         """Enables or disables local mode endpoint routing."""
 
@@ -293,67 +364,19 @@ class ExitApiClient:
 
     async def register_wallet(
         self,
-        keypair: object,
+        proof: WalletProof,
         label: str | None = None,
     ) -> None:
-        """Registers a wallet with the LaserSell API.
+        """Registers a wallet with the LaserSell API using a :class:`WalletProof`.
 
-        Proves you own the wallet by signing a timestamped message locally.
-        Must be called at least once per wallet before connecting to the stream.
-        Duplicate registrations are safe (the server upserts).
-
-        Expects a ``solders.keypair.Keypair`` instance.
-
-        What is sent to LaserSell servers
-        ----------------------------------
-        Only the **public key**, a plaintext message, and the ed25519
-        **signature** are transmitted. Your private key never leaves this
-        process.
-
-        .. code-block:: text
-
-            POST /v1/wallets/register
-            {
-              "wallet_pubkey": "<your public key>",
-              "signature":     "<ed25519 signature of the message below>",
-              "message":       "lasersell-register:<public_key>:<unix_timestamp>"
-            }
-
-        The server verifies the signature against the public key to confirm
-        ownership. The timestamp expires after 5 minutes to prevent replay.
+        Generate the proof with :func:`prove_ownership` first. Must be called
+        at least once per wallet before connecting to the stream. Duplicate
+        registrations are safe and can be called multiple times.
         """
-        import time
-
-        try:
-            from solders.keypair import Keypair as SoldersKeypair  # type: ignore[import-not-found]
-        except ModuleNotFoundError as error:
-            raise ExitApiError(
-                "transport",
-                "solders is required for wallet registration. Install with `pip install lasersell-sdk[tx]`",
-            ) from error
-
-        if not isinstance(keypair, SoldersKeypair):
-            raise TypeError(f"expected solders.keypair.Keypair, got {type(keypair).__name__}")
-
-        # Derive the public key. Only the public key is sent to the server.
-        wallet_pubkey = str(keypair.pubkey())
-
-        timestamp = int(time.time())
-
-        # The message is a plaintext string that the server can verify.
-        # It contains only the public key and a timestamp — no secrets.
-        message = f"lasersell-register:{wallet_pubkey}:{timestamp}"
-
-        # Sign the message locally. The private key is used here but is
-        # never serialized or transmitted — only the resulting signature is sent.
-        sig = keypair.sign_message(message.encode("utf-8"))
-
-        # This is the complete request body. You can verify that no private
-        # key material is included — only the public key, signature, and message.
         body: dict[str, object] = {
-            "wallet_pubkey": wallet_pubkey,
-            "signature": str(sig),
-            "message": message,
+            "wallet_pubkey": proof.wallet_pubkey,
+            "signature": proof.signature,
+            "message": proof.message,
         }
         if label is not None:
             body["label"] = label

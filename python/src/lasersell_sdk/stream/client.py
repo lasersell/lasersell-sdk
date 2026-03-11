@@ -214,6 +214,45 @@ class StreamClient:
         await worker.wait_ready()
         return StreamConnection(worker)
 
+    async def connect_with_wallets(
+        self,
+        proofs: list["WalletProof"],
+        strategy: StrategyConfigMsg,
+        deadline_timeout_sec: int = 0,
+    ) -> "StreamConnection":
+        """Registers wallet proofs via the LaserSell API, then opens a stream
+        connection.
+
+        This is the recommended way to connect. Generate proofs with
+        :func:`~lasersell_sdk.exit_api.prove_ownership` first — a pure local
+        operation that never touches the network.
+
+        Example::
+
+            from lasersell_sdk import prove_ownership
+
+            proof = prove_ownership(wallet_keypair)
+            client = StreamClient("your-api-key")
+            conn = await client.connect_with_wallets(
+                [proof],
+                strategy,
+                deadline_timeout_sec=45,
+            )
+        """
+        from lasersell_sdk.exit_api import ExitApiClient, WalletProof  # noqa: F811
+
+        exit_client = ExitApiClient.with_api_key(self._api_key)
+        for proof in proofs:
+            await exit_client.register_wallet(proof)
+
+        wallet_pubkeys = [p.wallet_pubkey for p in proofs]
+
+        return await self.connect(StreamConfigure(
+            wallet_pubkeys=wallet_pubkeys,
+            strategy=strategy,
+            deadline_timeout_sec=deadline_timeout_sec,
+        ))
+
     def _endpoint(self) -> str:
         if self._endpoint_override is not None:
             return self._endpoint_override

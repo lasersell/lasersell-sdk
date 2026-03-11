@@ -17,6 +17,7 @@ use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
 use tracing::{debug, info, trace, warn};
 
+use crate::exit_api::ExitApiClient;
 use crate::stream::proto::{ClientMessage, ServerMessage, StrategyConfigMsg, TakeProfitLevelMsg, WatchWalletEntryMsg};
 
 const MIN_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
@@ -102,6 +103,56 @@ impl StreamClient {
                 "stream worker stopped before initial connect".to_string(),
             )),
         }
+    }
+
+    /// Registers wallet proofs via the LaserSell API, then opens a stream
+    /// connection.
+    ///
+    /// This is the recommended way to connect. Generate proofs with
+    /// [`prove_ownership`](crate::exit_api::prove_ownership) first — a pure
+    /// local operation that never touches the network.
+    ///
+    /// ```rust,no_run
+    /// # use lasersell_sdk::{prove_ownership, stream::client::*};
+    /// # use secrecy::SecretString;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let proof = prove_ownership(&wallet_keypair);
+    /// let client = StreamClient::new(SecretString::from("your-api-key"));
+    /// let conn = client.connect_with_wallets(
+    ///     &[proof],
+    ///     strategy_config_from_optional(Some(50.0), Some(25.0), None, None),
+    ///     45,
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect_with_wallets(
+        &self,
+        proofs: &[crate::exit_api::WalletProof],
+        strategy: StrategyConfigMsg,
+        deadline_timeout_sec: u64,
+    ) -> Result<StreamConnection, StreamClientError> {
+        let exit_client = ExitApiClient::with_api_key(self.api_key.clone())
+            .map_err(|e| StreamClientError::Protocol(format!("failed to create exit client: {e}")))?;
+
+        for proof in proofs {
+            exit_client
+                .register_wallet(proof, None)
+                .await
+                .map_err(|e| StreamClientError::Protocol(format!("wallet registration failed: {e}")))?;
+        }
+
+        let wallet_pubkeys = proofs.iter().map(|p| p.wallet_pubkey.clone()).collect();
+
+        self.connect(StreamConfigure {
+            wallet_pubkeys,
+            strategy,
+            deadline_timeout_sec,
+            send_mode: None,
+            tip_lamports: None,
+            watch_wallets: Vec::new(),
+        })
+        .await
     }
 
     fn endpoint(&self) -> &str {

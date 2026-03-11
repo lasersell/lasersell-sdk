@@ -24,6 +24,34 @@ const (
 	LocalExitAPIBaseURL = "http://localhost:8080"
 )
 
+// WalletProof is proof of wallet ownership generated locally without any
+// network calls. Created by ProveOwnership. Contains only the public key,
+// a signed message, and the signature. No private key material is included.
+type WalletProof struct {
+	WalletPubkey string
+	Signature    string
+	Message      string
+}
+
+// ProveOwnership proves wallet ownership by signing a timestamped message
+// locally. This is a pure local operation — no network calls are made.
+// Pass the returned WalletProof to RegisterWallet or ConnectStream.
+//
+// The proof expires after 5 minutes (enforced server-side).
+func ProveOwnership(privateKey solana.PrivateKey) WalletProof {
+	pubkey := privateKey.PublicKey()
+	walletPubkey := pubkey.String()
+	timestamp := time.Now().Unix()
+	message := fmt.Sprintf("lasersell-register:%s:%d", walletPubkey, timestamp)
+	sigBytes := ed25519.Sign(ed25519.PrivateKey(privateKey), []byte(message))
+	signature := solana.SignatureFromBytes(sigBytes).String()
+	return WalletProof{
+		WalletPubkey: walletPubkey,
+		Signature:    signature,
+		Message:      message,
+	}
+}
+
 // ExitAPIDefaults groups the default tuning values used by DefaultExitAPIClientOptions.
 var ExitAPIDefaults = struct {
 	ConnectTimeout time.Duration
@@ -103,6 +131,26 @@ func NewExitAPIClientWithOptions(apiKey string, options ExitAPIClientOptions) *E
 		retryPolicy:    normalized.RetryPolicy,
 		local:          false,
 	}
+}
+
+// ConnectExitAPIClient creates a client and registers all provided wallets in
+// one step. Generate proofs with ProveOwnership first — a pure local operation
+// that never touches the network.
+//
+//	proof := lasersell.ProveOwnership(walletKey)
+//	client, err := lasersell.ConnectExitAPIClient(ctx, "your-api-key", []lasersell.WalletProof{proof})
+func ConnectExitAPIClient(
+	ctx context.Context,
+	apiKey string,
+	proofs []WalletProof,
+) (*ExitAPIClient, error) {
+	client := NewExitAPIClientWithAPIKey(apiKey)
+	for _, proof := range proofs {
+		if err := client.RegisterWallet(ctx, proof, nil); err != nil {
+			return nil, err
+		}
+	}
+	return client, nil
 }
 
 // WithLocalMode enables or disables local mode.
@@ -287,52 +335,20 @@ func (c *ExitAPIClient) BuildBuyTx(
 	return c.buildTx(ctx, "/v1/buy", request)
 }
 
-// RegisterWallet registers a wallet with the LaserSell API.
+// RegisterWallet registers a wallet with the LaserSell API using a WalletProof.
 //
-// Proves you own the wallet by signing a timestamped message locally.
-// Must be called at least once per wallet before connecting to the stream.
-// Duplicate registrations are safe (the server upserts).
-//
-// # What is sent to LaserSell servers
-//
-// Only the public key, a plaintext message, and the ed25519 signature
-// are transmitted. Your private key never leaves this process.
-//
-//	POST /v1/wallets/register
-//	{
-//	  "wallet_pubkey": "<your public key>",
-//	  "signature":     "<ed25519 signature of the message below>",
-//	  "message":       "lasersell-register:<public_key>:<unix_timestamp>"
-//	}
-//
-// The server verifies the signature against the public key to confirm
-// ownership. The timestamp expires after 5 minutes to prevent replay.
+// Generate the proof with ProveOwnership first. Must be called at least once
+// per wallet before connecting to the stream. Duplicate registrations are safe
+// and can be called multiple times.
 func (c *ExitAPIClient) RegisterWallet(
 	ctx context.Context,
-	privateKey solana.PrivateKey,
+	proof WalletProof,
 	label *string,
 ) error {
-	// Derive the public key. Only the public key is sent to the server.
-	pubkey := privateKey.PublicKey()
-	walletPubkey := pubkey.String()
-
-	timestamp := time.Now().Unix()
-
-	// The message is a plaintext string that the server can verify.
-	// It contains only the public key and a timestamp — no secrets.
-	message := fmt.Sprintf("lasersell-register:%s:%d", walletPubkey, timestamp)
-
-	// Sign the message locally. The private key is used here but is
-	// never serialized or transmitted — only the resulting signature is sent.
-	sigBytes := ed25519.Sign(ed25519.PrivateKey(privateKey), []byte(message))
-	signature := solana.SignatureFromBytes(sigBytes).String()
-
-	// This is the complete request body. You can verify that no private
-	// key material is included — only the public key, signature, and message.
 	body := map[string]string{
-		"wallet_pubkey": walletPubkey,
-		"signature":     signature,
-		"message":       message,
+		"wallet_pubkey": proof.WalletPubkey,
+		"signature":     proof.Signature,
+		"message":       proof.Message,
 	}
 	if label != nil {
 		body["label"] = *label

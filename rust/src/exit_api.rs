@@ -17,6 +17,45 @@ use tracing::{debug, warn};
 use crate::retry::{retry_async, RetryPolicy};
 use crate::stream::proto::MarketContextMsg;
 
+/// Proof of wallet ownership generated locally without any network calls.
+///
+/// Created by [`prove_ownership`]. Contains only the public key, a signed
+/// message, and the signature. No private key material is included.
+#[derive(Clone, Debug)]
+pub struct WalletProof {
+    /// The wallet's public key (base58).
+    pub wallet_pubkey: String,
+    /// The ed25519 signature of `message` (base58).
+    pub signature: String,
+    /// The signed plaintext message: `lasersell-register:<pubkey>:<timestamp>`.
+    pub message: String,
+}
+
+/// Proves wallet ownership by signing a timestamped message locally.
+///
+/// This is a pure local operation — no network calls are made. The returned
+/// [`WalletProof`] can be passed to [`ExitApiClient::register_wallet`] or
+/// [`StreamClient::connect_with_wallets`](crate::stream::client::StreamClient::connect_with_wallets).
+///
+/// The proof expires after 5 minutes (enforced server-side).
+pub fn prove_ownership(keypair: &solana_sdk::signature::Keypair) -> WalletProof {
+    let wallet_pubkey = keypair.pubkey().to_string();
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let message = format!("lasersell-register:{wallet_pubkey}:{timestamp}");
+    let signature = keypair.sign_message(message.as_bytes());
+
+    WalletProof {
+        wallet_pubkey,
+        signature: signature.to_string(),
+        message,
+    }
+}
+
 const ERROR_BODY_SNIPPET_LEN: usize = 220;
 /// Production base URL for the LaserSell Exit API.
 pub const EXIT_API_BASE_URL: &str = "https://api.lasersell.io";
@@ -109,6 +148,34 @@ impl ExitApiClient {
         })
     }
 
+    /// Creates a client and registers all provided wallets in one step.
+    ///
+    /// Generate proofs with [`prove_ownership`] first, then pass them here.
+    /// Duplicate registrations are safe and can be called multiple times.
+    ///
+    /// ```rust,no_run
+    /// # use lasersell_sdk::{ExitApiClient, prove_ownership};
+    /// # use secrecy::SecretString;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let proof = prove_ownership(&wallet_keypair);
+    /// let client = ExitApiClient::connect(
+    ///     SecretString::from("your-api-key"),
+    ///     &[proof],
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect(
+        api_key: SecretString,
+        proofs: &[WalletProof],
+    ) -> Result<Self, ExitApiError> {
+        let client = Self::with_api_key(api_key)?;
+        for proof in proofs {
+            client.register_wallet(proof, None).await?;
+        }
+        Ok(client)
+    }
+
     /// Enables or disables local mode.
     ///
     /// When `local` is `true`, requests are sent to
@@ -182,55 +249,20 @@ impl ExitApiClient {
         self.build_tx("/v1/buy", request).await
     }
 
-    /// Registers a wallet with the LaserSell API.
+    /// Registers a wallet with the LaserSell API using a [`WalletProof`].
     ///
-    /// This proves you own the wallet by signing a timestamped message locally.
-    /// Must be called at least once per wallet before connecting to the stream.
-    /// Duplicate registrations are safe (the server upserts).
-    ///
-    /// # What is sent to LaserSell servers
-    ///
-    /// Only the **public key**, a plaintext message, and the ed25519 **signature**
-    /// are transmitted. Your private key never leaves this process.
-    ///
-    /// ```text
-    /// POST /v1/wallets/register
-    /// {
-    ///   "wallet_pubkey": "<your public key>",
-    ///   "signature":     "<ed25519 signature of the message below>",
-    ///   "message":       "lasersell-register:<public_key>:<unix_timestamp>"
-    /// }
-    /// ```
-    ///
-    /// The server verifies the signature against the public key to confirm
-    /// ownership. The timestamp expires after 5 minutes to prevent replay.
+    /// Generate the proof with [`prove_ownership`] first. Must be called at
+    /// least once per wallet before connecting to the stream. Duplicate
+    /// registrations are safe and can be called multiple times.
     pub async fn register_wallet(
         &self,
-        keypair: &solana_sdk::signature::Keypair,
+        proof: &WalletProof,
         label: Option<&str>,
     ) -> Result<(), ExitApiError> {
-        // Derive the public key. Only the public key is sent to the server.
-        let wallet_pubkey = keypair.pubkey().to_string();
-
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        // The message is a plaintext string that the server can verify.
-        // It contains only the public key and a timestamp — no secrets.
-        let message = format!("lasersell-register:{wallet_pubkey}:{timestamp}");
-
-        // Sign the message locally. The private key is used here but is
-        // never serialized or transmitted — only the resulting signature is sent.
-        let signature = keypair.sign_message(message.as_bytes());
-
-        // This is the complete request body. You can verify that no private
-        // key material is included — only the public key, signature, and message.
         let mut body = serde_json::json!({
-            "wallet_pubkey": wallet_pubkey,
-            "signature": signature.to_string(),
-            "message": message,
+            "wallet_pubkey": proof.wallet_pubkey,
+            "signature": proof.signature,
+            "message": proof.message,
         });
         if let Some(label) = label {
             body["label"] = serde_json::Value::String(label.to_string());
@@ -258,7 +290,7 @@ impl ExitApiClient {
             });
         }
 
-        debug!(event = "wallet_registered", wallet = %wallet_pubkey);
+        debug!(event = "wallet_registered", wallet = %proof.wallet_pubkey);
         Ok(())
     }
 

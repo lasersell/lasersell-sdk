@@ -8,6 +8,7 @@
 
 /// LaserSell API client and request/response types.
 pub mod exit_api;
+pub use exit_api::{prove_ownership, WalletProof};
 /// Retry and timeout helpers used across the SDK.
 pub mod retry;
 /// Realtime stream client, protocol types, and session state helpers.

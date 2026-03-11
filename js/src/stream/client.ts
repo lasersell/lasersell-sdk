@@ -1,5 +1,6 @@
 import WebSocket, { type RawData } from "ws";
 
+import { ExitApiClient, type WalletProof } from "../exitApi.js";
 import {
   clientMessageToText,
   serverMessageFromText,
@@ -215,6 +216,39 @@ export class StreamClient {
     );
     await worker.waitReady();
     return new StreamConnectionLanes(worker);
+  }
+
+  /**
+   * Registers wallet proofs via the LaserSell API, then opens a stream
+   * connection.
+   *
+   * This is the recommended way to connect. Generate proofs with
+   * `proveOwnership()` first — a pure local operation that never touches
+   * the network.
+   *
+   * @example
+   * ```ts
+   * import { proveOwnership } from "lasersell-sdk";
+   *
+   * const proof = proveOwnership(walletKeypair);
+   * const client = new StreamClient("your-api-key");
+   * const conn = await client.connectWithWallets([proof], strategy, 45);
+   * ```
+   */
+  async connectWithWallets(
+    proofs: WalletProof[],
+    strategy: StrategyConfigMsg,
+    deadlineTimeoutSec = 0,
+  ): Promise<StreamConnection> {
+    const exitClient = ExitApiClient.withApiKey(this.apiKey);
+    for (const proof of proofs) {
+      await exitClient.registerWallet(proof);
+    }
+    return this.connect({
+      wallet_pubkeys: proofs.map((p) => p.walletPubkey),
+      strategy,
+      deadline_timeout_sec: deadlineTimeoutSec,
+    });
   }
 
   private endpoint(): string {
