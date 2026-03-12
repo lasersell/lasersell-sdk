@@ -1,6 +1,6 @@
 [package]
 name = "lasersell-sdk"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 license = "MIT"
 description = "Rust SDK for the LaserSell API"
