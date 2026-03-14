@@ -71,9 +71,128 @@ go run ./examples/auto_sell
 - `examples/build_and_send_sell/main.go`
 - `examples/auto_sell/main.go`
 
+## Stream + auto-sell flow
+
+> **Important:** Connect the stream **before** submitting a buy transaction.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/gagliardetto/solana-go"
+	lasersell "github.com/lasersell/lasersell-sdk/go"
+	"github.com/lasersell/lasersell-sdk/go/stream"
+)
+
+func main() {
+	ctx := context.Background()
+	privateKey, _ := solana.PrivateKeyFromSolanaKeygenFile("keypair.json")
+
+	client := stream.NewStreamClient("YOUR_API_KEY")
+	sendMode := "helius_sender"
+	tipLamports := uint64(1000)
+	session, _ := stream.ConnectSession(ctx, client, stream.StreamConfigure{
+		WalletPubkeys:      []string{privateKey.PublicKey().String()},
+		Strategy:           stream.StrategyConfigMsg{TargetProfitPct: 50, StopLossPct: 10, TrailingStopPct: 5},
+		DeadlineTimeoutSec: 120,
+		SendMode:           &sendMode,
+		TipLamports:        &tipLamports,
+	})
+
+	for {
+		event, err := session.Recv(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		switch msg := event.Message.(type) {
+		case stream.ExitSignalWithTxServerMessage:
+			signed, _ := lasersell.SignUnsignedTx(msg.UnsignedTxB64, privateKey)
+			sig, _ := lasersell.SendTransaction(ctx, nil, lasersell.SendTargetHeliusSender(), signed)
+			fmt.Printf("exit submitted: %s\n", sig)
+		case stream.PositionOpenedServerMessage:
+			fmt.Printf("tracking: %s\n", msg.Mint)
+		}
+	}
+}
+```
+
+## Exit ladder
+
+Sell partial amounts at multiple profit thresholds:
+
+```go
+strategy := stream.NewStrategyConfigBuilder().
+    StopLossPct(10.0).
+    TakeProfitLevels([]stream.TakeProfitLevelMsg{
+        {ProfitPct: 25.0, SellPct: 30.0, TrailingStopPct: 0.0},
+        {ProfitPct: 50.0, SellPct: 50.0, TrailingStopPct: 3.0},
+        {ProfitPct: 100.0, SellPct: 100.0, TrailingStopPct: 5.0},
+    }).
+    Build()
+```
+
+## Liquidity guard
+
+Prevent exits into thin liquidity:
+
+```go
+strategy := stream.NewStrategyConfigBuilder().
+    TargetProfitPct(50.0).
+    StopLossPct(10.0).
+    LiquidityGuard(true).
+    Build()
+```
+
+## Breakeven trail
+
+A trailing stop that activates at breakeven:
+
+```go
+strategy := stream.NewStrategyConfigBuilder().
+    TargetProfitPct(50.0).
+    StopLossPct(10.0).
+    BreakevenTrailPct(2.0).
+    Build()
+```
+
+## Per-position strategy override
+
+Override the global strategy for a single position:
+
+```go
+sender.UpdatePositionStrategy(positionID, stream.StrategyConfigMsg{
+    TargetProfitPct: 200.0,
+    StopLossPct:     5.0,
+    TrailingStopPct: 10.0,
+})
+```
+
+## Wallet registration
+
+All wallets must be registered before connecting to the Exit Intelligence Stream:
+
+```go
+proof := lasersell.ProveOwnership(privateKey)
+apiClient.RegisterWallet(ctx, proof, lasersell.Ptr("My Wallet"))
+```
+
+## Watch wallets (copy trading)
+
+Mirror trades from external wallets:
+
+```go
+sender.UpdateWatchWallets([]stream.WatchWalletEntryMsg{
+    {Pubkey: "WalletToWatch..."},
+})
+```
+
 ## RPC endpoint
 
-The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+The SDK ships with the Solana public RPC as a default so you can get started immediately:
 
 ```go
 target := lasersell.SendTargetDefaultRpc()

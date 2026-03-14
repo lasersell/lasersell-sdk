@@ -42,15 +42,26 @@ func main() {
 		log.Fatalf("read keypair: %v", err)
 	}
 
+	// Register wallet (required for stream connection)
+	apiClient := lasersell.NewExitAPIClientWithAPIKey(apiKey)
+	proof := lasersell.ProveOwnership(privateKey)
+	if err := apiClient.RegisterWallet(ctx, proof, nil); err != nil {
+		log.Fatalf("register wallet: %v", err)
+	}
+
 	client := stream.NewStreamClient(apiKey)
 	sendMode := "helius_sender"
 	tipLamports := uint64(1000)
 	session, err := stream.ConnectSession(ctx, client, stream.StreamConfigure{
 		WalletPubkeys: walletPubkeys,
-		Strategy: stream.StrategyConfigMsg{
-			TargetProfitPct: 5.0,
-			StopLossPct:     1.5,
-		},
+		Strategy: stream.NewStrategyConfigBuilder().
+			TargetProfitPct(5.0).
+			StopLossPct(1.5).
+			TakeProfitLevels([]stream.TakeProfitLevelMsg{
+				{ProfitPct: 3.0, SellPct: 30.0, TrailingStopPct: 0.0},
+				{ProfitPct: 5.0, SellPct: 100.0, TrailingStopPct: 1.0},
+			}).
+			Build(),
 		DeadlineTimeoutSec: 45,
 		SendMode:           &sendMode,
 		TipLamports:        &tipLamports,

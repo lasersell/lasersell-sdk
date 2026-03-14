@@ -142,9 +142,100 @@ let response = client.build_partial_sell_tx(&handle, amount_tokens, 500, SellOut
 
 Combine with slippage bands to sell the maximum amount within your desired price impact.
 
+## Exit ladder
+
+Sell partial amounts at multiple profit thresholds:
+
+```rust
+use lasersell_sdk::stream::client::StrategyConfigBuilder;
+use lasersell_sdk::stream::proto::TakeProfitLevelMsg;
+
+let strategy = StrategyConfigBuilder::new()
+    .stop_loss_pct(10.0)
+    .take_profit_levels(vec![
+        TakeProfitLevelMsg { profit_pct: 25.0, sell_pct: 30.0, trailing_stop_pct: 0.0 },
+        TakeProfitLevelMsg { profit_pct: 50.0, sell_pct: 50.0, trailing_stop_pct: 3.0 },
+        TakeProfitLevelMsg { profit_pct: 100.0, sell_pct: 100.0, trailing_stop_pct: 5.0 },
+    ])
+    .build();
+```
+
+## Liquidity guard
+
+Prevent exits into thin liquidity:
+
+```rust
+let strategy = StrategyConfigBuilder::new()
+    .target_profit_pct(50.0)
+    .stop_loss_pct(10.0)
+    .liquidity_guard(true)
+    .build();
+```
+
+## Breakeven trail
+
+A trailing stop that activates at breakeven:
+
+```rust
+let strategy = StrategyConfigBuilder::new()
+    .target_profit_pct(50.0)
+    .stop_loss_pct(10.0)
+    .breakeven_trail_pct(2.0)
+    .build();
+```
+
+## Per-position strategy override
+
+Override the global strategy for a single position:
+
+```rust
+session.sender().update_position_strategy(position_id, StrategyConfigMsg {
+    target_profit_pct: 200.0,
+    stop_loss_pct: 5.0,
+    trailing_stop_pct: 10.0,
+    ..Default::default()
+})?;
+```
+
+## Wallet registration
+
+All wallets must be registered before connecting to the Exit Intelligence Stream:
+
+```rust
+use lasersell_sdk::exit_api::prove_ownership;
+
+// 1. Prove ownership (local Ed25519 signature)
+let proof = prove_ownership(&keypair);
+
+// 2. Register with the API
+client.register_wallet(&proof, Some("My Wallet")).await?;
+
+// 3. Connect with registered wallet (convenience method)
+let session = stream_client.connect_with_wallets(&[proof], strategy, 120).await?;
+```
+
+## Watch wallets (copy trading)
+
+Mirror trades from external wallets:
+
+```rust
+session.sender().update_watch_wallets(vec![
+    WatchWalletEntryMsg { pubkey: "WalletToWatch...".into(), auto_buy: None },
+])?;
+```
+
+## Priority lanes
+
+Split the stream into high-priority and low-priority channels. Exit signals flow through the high-priority channel while PnL updates and liquidity snapshots flow through the low-priority channel:
+
+```rust
+let connection = StreamSession::connect(&client, configure).await?;
+let lanes = connection.into_lanes(1024); // low-priority channel buffer size
+```
+
 ## RPC endpoint
 
-The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+The SDK ships with the Solana public RPC as a default so you can get started immediately:
 
 ```rust
 let target = SendTarget::default_rpc();

@@ -18,8 +18,11 @@ import { readFile } from "node:fs/promises";
 
 import { Keypair } from "@solana/web3.js";
 import {
+  ExitApiClient,
   StreamClient,
   StreamSession,
+  StrategyConfigBuilder,
+  proveOwnership,
   sendTransaction,
   sendTargetHeliusSender,
   signUnsignedTx,
@@ -41,13 +44,23 @@ async function main(): Promise<void> {
   const closeAfterSubmit = false;
 
   const signer = await readKeypairFile(keypairPath);
+
+  // Register wallet (required for stream connection)
+  const apiClient = ExitApiClient.withApiKey(apiKey);
+  const proof = proveOwnership(signer);
+  await apiClient.registerWallet(proof);
+
   const client = new StreamClient(apiKey);
   const session = await StreamSession.connect(client, {
     wallet_pubkeys: walletPubkeys,
-    strategy: {
-      target_profit_pct: 5,
-      stop_loss_pct: 1.5,
-    },
+    strategy: new StrategyConfigBuilder()
+      .targetProfitPct(5)
+      .stopLossPct(1.5)
+      .takeProfitLevels([
+        { profit_pct: 3, sell_pct: 30, trailing_stop_pct: 0 },
+        { profit_pct: 5, sell_pct: 100, trailing_stop_pct: 1 },
+      ])
+      .build(),
     deadline_timeout_sec: 45,
     send_mode: "helius_sender",
     tip_lamports: 1000,

@@ -36,7 +36,7 @@ def astralane_iris_url(region: str) -> str:
 class SendTargetRpc:
     """Standard Solana JSON-RPC endpoint.
 
-    When no URL is provided, falls back to the Solana public mainnet-beta
+    When no URL is provided, falls back to the Solana public RPC
     endpoint. This is rate-limited — use a private RPC for production.
     """
 

@@ -64,7 +64,7 @@ pub enum SendTarget {
 }
 
 impl SendTarget {
-    /// Creates an RPC send target using the Solana public mainnet-beta endpoint.
+    /// Creates an RPC send target using the Solana public RPC endpoint.
     ///
     /// **Not recommended for production.** The public endpoint is heavily
     /// rate-limited. Use `SendTarget::Rpc { url }` with a private RPC instead.

@@ -224,9 +224,100 @@ if (maxTokens !== undefined) {
 
 The method accepts a `PositionHandle` (available on every `StreamEvent`), the token amount, slippage in bps, and the output asset.
 
+### Exit ladder (take profit levels)
+
+Sell partial amounts at multiple profit thresholds instead of exiting the entire position at one price:
+
+```ts
+import { StrategyConfigBuilder } from "@lasersell/lasersell-sdk";
+
+const strategy = new StrategyConfigBuilder()
+  .stopLossPct(10)
+  .takeProfitLevels([
+    { profit_pct: 25, sell_pct: 30, trailing_stop_pct: 0 },
+    { profit_pct: 50, sell_pct: 50, trailing_stop_pct: 3 },
+    { profit_pct: 100, sell_pct: 100, trailing_stop_pct: 5 },
+  ])
+  .build();
+```
+
+Each level specifies a profit target, the percentage of the position to sell, and an optional trailing stop for that level. See the [Strategy Configuration guide](https://docs.lasersell.io/api/stream/strategy-configuration#exit-ladder-take-profit-levels).
+
+### Liquidity guard
+
+Prevent exits into thin liquidity. When enabled, the stream checks pool depth before generating an exit signal:
+
+```ts
+const strategy = new StrategyConfigBuilder()
+  .targetProfitPct(50)
+  .stopLossPct(10)
+  .liquidityGuard(true)
+  .build();
+```
+
+### Breakeven trail
+
+A trailing stop that activates once the position breaks even, protecting you from giving back all gains:
+
+```ts
+const strategy = new StrategyConfigBuilder()
+  .targetProfitPct(50)
+  .stopLossPct(10)
+  .breakevenTrailPct(2)
+  .build();
+```
+
+### Per-position strategy override
+
+Override the global strategy for individual positions without affecting other tracked positions:
+
+```ts
+session.sender().updatePositionStrategy(positionId, {
+  target_profit_pct: 200,
+  stop_loss_pct: 5,
+  trailing_stop_pct: 10,
+});
+```
+
+### Wallet registration
+
+All wallets must be registered before connecting to the Exit Intelligence Stream. Registration proves ownership via a local Ed25519 signature (no on-chain transaction needed):
+
+```ts
+import { proveOwnership, ExitApiClient, StreamClient } from "@lasersell/lasersell-sdk";
+
+// 1. Prove ownership (local, no network call)
+const proof = proveOwnership(keypair);
+
+// 2. Register with the API
+const client = ExitApiClient.withApiKey(apiKey);
+await client.registerWallet(proof);
+
+// 3. Connect to stream (wallet must be registered first)
+const session = await new StreamClient(apiKey).connectWithWallets(
+  [proof],
+  strategy,
+  120, // deadline_timeout_sec
+);
+```
+
+`connectWithWallets` is a convenience that registers and connects in one step.
+
+### Watch wallets (copy trading)
+
+Mirror trades from external wallets by adding them as watch wallets on your stream session:
+
+```ts
+session.sender().updateWatchWallets([
+  { pubkey: "WalletToWatch..." },
+]);
+```
+
+Watch wallets must also be registered to your account. Positions detected on watched wallets are tagged with `watched: true` in stream events.
+
 ## RPC endpoint
 
-Every SDK ships with the Solana public mainnet-beta RPC (`https://api.mainnet-beta.solana.com`) as a built-in default so you can get started without configuring an RPC provider:
+Every SDK ships with the Solana public RPC as a built-in default so you can get started without configuring an RPC provider:
 
 ```ts
 // TypeScript — zero-config RPC
@@ -237,7 +328,7 @@ const target = sendTargetDefaultRpc();
 ```python
 # Python — zero-config RPC
 from lasersell_sdk.tx import SendTargetRpc
-target = SendTargetRpc()  # uses mainnet-beta public RPC
+target = SendTargetRpc()  # uses Solana public RPC
 ```
 
 ```rust
@@ -287,8 +378,8 @@ Full API and SDK documentation is available at **[docs.lasersell.io/api](https:/
 | Documentation | [docs.lasersell.io](https://docs.lasersell.io) |
 | Blog | [lasersell.io/blog](https://www.lasersell.io/blog) |
 | Benchmarks | [2-5x faster than every major Solana trading API](https://www.lasersell.io/blog/benchmark-results) |
-| SDK 0.3 release | [Liquidity Snapshots, Slippage Bands, and SDK 0.3](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) |
-| LaserSell CLI (open source) | [github.com/lasersell/lasersell](https://github.com/lasersell/lasersell) |
+| Liquidity snapshots | [Liquidity Snapshots, Slippage Bands, and SDK 0.3](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) |
+| LaserSell CLI | [github.com/lasersell/lasersell](https://github.com/lasersell/lasersell) |
 | SDKs (this repo) | [github.com/lasersell/lasersell-sdk](https://github.com/lasersell/lasersell-sdk) |
 | Discord | [discord.gg/lasersell](https://discord.gg/lasersell) |
 | X (Twitter) | [@lasersellhq](https://x.com/lasersellhq) |
@@ -319,7 +410,7 @@ The API client (`ExitApiClient`) is for one-shot operations: build a single [buy
 
 ### How does the LaserSell CLI relate to the SDK?
 
-The [LaserSell CLI](https://github.com/lasersell/lasersell) is an open-source command-line application built on top of this SDK. It's a ready-to-use trading tool. The SDK is for developers who want to build their own applications, bots, or integrations on top of the LaserSell API.
+The [LaserSell CLI](https://github.com/lasersell/lasersell) is an open-source command-line tool built on top of this SDK. It's a ready-to-use trading tool. The SDK is for developers who want to build their own applications, bots, or integrations on top of the LaserSell API.
 
 ## License
 

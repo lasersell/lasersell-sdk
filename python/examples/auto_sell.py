@@ -18,7 +18,8 @@ from pathlib import Path
 
 from solders.keypair import Keypair
 
-from lasersell_sdk.stream.client import StreamClient, StreamConfigure
+from lasersell_sdk.exit_api import ExitApiClient, prove_ownership
+from lasersell_sdk.stream.client import StreamClient, StreamConfigure, StrategyConfigBuilder
 from lasersell_sdk.stream.session import StreamSession
 from lasersell_sdk.tx import SendTargetHeliusSender, send_transaction, sign_unsigned_tx
 
@@ -33,15 +34,25 @@ async def main() -> None:
     close_after_submit = False
 
     signer = read_keypair_file(keypair_path)
+
+    # Register wallet (required for stream connection)
+    api_client = ExitApiClient.with_api_key(api_key)
+    proof = prove_ownership(signer)
+    await api_client.register_wallet(proof)
+
     client = StreamClient(api_key)
     session = await StreamSession.connect(
         client,
         StreamConfigure(
             wallet_pubkeys=wallet_pubkeys,
-            strategy={
-                "target_profit_pct": 5.0,
-                "stop_loss_pct": 1.5,
-            },
+            strategy=StrategyConfigBuilder()
+                .target_profit_pct(5.0)
+                .stop_loss_pct(1.5)
+                .take_profit_levels([
+                    {"profit_pct": 3, "sell_pct": 30, "trailing_stop_pct": 0},
+                    {"profit_pct": 5, "sell_pct": 100, "trailing_stop_pct": 1},
+                ])
+                .build(),
             deadline_timeout_sec=45,
             send_mode="helius_sender",
             tip_lamports=1000,

@@ -45,7 +45,7 @@ export function sendTargetRpc(url: string): SendTarget {
 }
 
 /**
- * Creates an RPC send target using the Solana public mainnet-beta endpoint.
+ * Creates an RPC send target using the Solana public RPC endpoint.
  *
  * **Not recommended for production.** Use `sendTargetRpc(url)` with a private RPC.
  */

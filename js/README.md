@@ -165,9 +165,94 @@ const response = await client.buildPartialSellTx(handle, amountTokens, 500, "SOL
 
 Combine with slippage bands to sell the maximum amount within your desired price impact.
 
+### Exit ladder
+
+Sell partial amounts at multiple profit thresholds:
+
+```ts
+import { StrategyConfigBuilder } from "@lasersell/lasersell-sdk";
+
+const strategy = new StrategyConfigBuilder()
+  .stopLossPct(10)
+  .takeProfitLevels([
+    { profit_pct: 25, sell_pct: 30, trailing_stop_pct: 0 },
+    { profit_pct: 50, sell_pct: 50, trailing_stop_pct: 3 },
+    { profit_pct: 100, sell_pct: 100, trailing_stop_pct: 5 },
+  ])
+  .build();
+```
+
+### Liquidity guard
+
+Prevent exits into thin liquidity:
+
+```ts
+const strategy = new StrategyConfigBuilder()
+  .targetProfitPct(50)
+  .stopLossPct(10)
+  .liquidityGuard(true)
+  .build();
+```
+
+### Breakeven trail
+
+A trailing stop that activates at breakeven:
+
+```ts
+const strategy = new StrategyConfigBuilder()
+  .targetProfitPct(50)
+  .stopLossPct(10)
+  .breakevenTrailPct(2)
+  .build();
+```
+
+### Per-position strategy override
+
+Override the global strategy for a single position:
+
+```ts
+session.sender().updatePositionStrategy(positionId, {
+  target_profit_pct: 200,
+  stop_loss_pct: 5,
+  trailing_stop_pct: 10,
+});
+```
+
+### Wallet registration
+
+All wallets must be registered before connecting to the Exit Intelligence Stream:
+
+```ts
+import { proveOwnership, ExitApiClient } from "@lasersell/lasersell-sdk";
+
+const proof = proveOwnership(keypair);
+await ExitApiClient.withApiKey(apiKey).registerWallet(proof);
+
+// Or use connectWithWallets (registers + connects in one step)
+const session = await client.connectWithWallets([proof], strategy, 120);
+```
+
+### Watch wallets (copy trading)
+
+Mirror trades from external wallets:
+
+```ts
+session.sender().updateWatchWallets([
+  { pubkey: "WalletToWatch..." },
+]);
+```
+
+### Priority lanes
+
+Split the stream into high and low priority channels:
+
+```ts
+const lanes = await client.connectLanes(configure, { lowPriorityCapacity: 1024 });
+```
+
 ## RPC endpoint
 
-The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+The SDK ships with the Solana public RPC as a default so you can get started immediately:
 
 ```ts
 import { sendTargetDefaultRpc } from "@lasersell/lasersell-sdk";

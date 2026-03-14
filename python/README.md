@@ -183,6 +183,89 @@ response = await client.build_partial_sell_tx(handle, amount_tokens, 500, SellOu
 
 Combine with slippage bands to sell the maximum amount within your desired price impact.
 
+### Exit ladder
+
+Sell partial amounts at multiple profit thresholds:
+
+```python
+from lasersell_sdk.stream.client import StrategyConfigBuilder
+
+strategy = (
+    StrategyConfigBuilder()
+    .stop_loss_pct(10.0)
+    .take_profit_levels([
+        {"profit_pct": 25, "sell_pct": 30, "trailing_stop_pct": 0},
+        {"profit_pct": 50, "sell_pct": 50, "trailing_stop_pct": 3},
+        {"profit_pct": 100, "sell_pct": 100, "trailing_stop_pct": 5},
+    ])
+    .build()
+)
+```
+
+### Liquidity guard
+
+Prevent exits into thin liquidity:
+
+```python
+strategy = (
+    StrategyConfigBuilder()
+    .target_profit_pct(50.0)
+    .stop_loss_pct(10.0)
+    .liquidity_guard(True)
+    .build()
+)
+```
+
+### Breakeven trail
+
+A trailing stop that activates at breakeven:
+
+```python
+strategy = (
+    StrategyConfigBuilder()
+    .target_profit_pct(50.0)
+    .stop_loss_pct(10.0)
+    .breakeven_trail_pct(2.0)
+    .build()
+)
+```
+
+### Per-position strategy override
+
+Override the global strategy for a single position:
+
+```python
+session.sender().update_position_strategy(position_id, {
+    "target_profit_pct": 200.0,
+    "stop_loss_pct": 5.0,
+    "trailing_stop_pct": 10.0,
+})
+```
+
+### Wallet registration
+
+All wallets must be registered before connecting to the Exit Intelligence Stream:
+
+```python
+from lasersell_sdk.exit_api import prove_ownership
+
+proof = prove_ownership(keypair)
+await client.register_wallet(proof, label="My Wallet")
+
+# Or use connect_with_wallets (registers + connects in one step)
+session = await stream_client.connect_with_wallets([proof], strategy, deadline_timeout_sec=120)
+```
+
+### Watch wallets (copy trading)
+
+Mirror trades from external wallets:
+
+```python
+session.sender().update_watch_wallets([
+    {"pubkey": "WalletToWatch..."},
+])
+```
+
 Notes:
 
 - Use `client.with_endpoint("wss://stream-dev.example/v1/ws")` to target a custom stream endpoint.
@@ -190,12 +273,12 @@ Notes:
 
 ## RPC endpoint
 
-The SDK ships with the Solana public mainnet-beta RPC as a default so you can get started immediately:
+The SDK ships with the Solana public RPC as a default so you can get started immediately:
 
 ```python
 from lasersell_sdk.tx import SendTargetRpc
 
-target = SendTargetRpc()  # uses mainnet-beta public RPC
+target = SendTargetRpc()  # uses Solana public RPC
 ```
 
 **A private RPC is highly recommended for production** — the public endpoint is rate-limited and unreliable under load. Free private RPC tiers are available from [Helius](https://www.helius.dev/) and [Chainstack](https://chainstack.com/), among others:

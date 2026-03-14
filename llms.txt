@@ -15,6 +15,15 @@ LaserSell is a professional Solana trade execution API. It builds optimized tran
 - Partial sells based on slippage data via `buildPartialSellTx()`
 - Multi-wallet monitoring (up to 5 on Professional, 200 on Advanced)
 - Quote currencies: SOL and USD1
+- Exit ladder: sell partial amounts at multiple profit thresholds via `take_profit_levels`
+- Liquidity guard: check pool depth before generating exit signals
+- Breakeven trail: trailing stop that activates once position breaks even
+- Per-position strategy overrides via `update_position_strategy`
+- Watch wallets: mirror trades from external wallets (copy trading)
+- Wallet registration: `prove_ownership()` + `register_wallet()` required for all stream connections (Ed25519 proof of ownership)
+- `connect_with_wallets()`: convenience method that registers and connects in one step
+- Priority lanes: split stream into hi/lo priority channels (TypeScript + Rust)
+- `StrategyConfigBuilder`: fluent builder pattern for strategy configuration
 
 ## Languages
 
@@ -31,6 +40,12 @@ LaserSell is a professional Solana trade execution API. It builds optimized tran
 - `signUnsignedTx`: Local transaction signing (non-custodial)
 - `sendTransaction`: Submit signed transactions to Solana
 - `getSlippageBands()`, `getMaxSellAtSlippage()`, `getLiquidityTrend()`: Liquidity snapshot queries on `StreamSession`
+- `StrategyConfigBuilder`: Fluent builder for strategy configuration with methods like `.targetProfitPct()`, `.takeProfitLevels()`, `.liquidityGuard()`, `.breakevenTrailPct()`
+- `prove_ownership(keypair)`: Generate Ed25519 wallet proof locally (no network call)
+- `register_wallet(proof)`: Register a wallet with the LaserSell API (required for stream connections)
+- `connect_with_wallets(proofs, strategy)`: Register + connect to stream in one step
+- `updatePositionStrategy(id, strategy)`: Override global strategy for a single position
+- `updateWatchWallets(wallets)`: Add or update watch wallets mid-session
 
 ## Typical flow
 
@@ -76,7 +91,7 @@ Pump.fun, PumpSwap, Raydium (Launchpad, CPMM), Meteora (DBC, DAMM v2), Bags.fm
 - SDK repo: https://github.com/lasersell/lasersell-sdk
 - CLI repo: https://github.com/lasersell/lasersell
 - Blog: https://www.lasersell.io/blog
-- SDK 0.3 announcement: https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3
+- Liquidity snapshots announcement: https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3
 - Benchmark results: https://www.lasersell.io/blog/benchmark-results
 - Open-source benchmarks: https://github.com/lasersell/benchmarks
 - Discord: https://discord.gg/lasersell

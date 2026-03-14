@@ -14,8 +14,9 @@
 
 use std::error::Error;
 
-use lasersell_sdk::stream::client::{strategy_config_from_optional, StreamClient, StreamConfigure};
-use lasersell_sdk::stream::proto::ServerMessage;
+use lasersell_sdk::exit_api::{prove_ownership, ExitApiClient};
+use lasersell_sdk::stream::client::{StreamClient, StreamConfigure, StrategyConfigBuilder};
+use lasersell_sdk::stream::proto::{ServerMessage, TakeProfitLevelMsg};
 use lasersell_sdk::stream::session::{StreamEvent, StreamSession};
 use lasersell_sdk::tx::{send_transaction, sign_unsigned_tx, SendTarget};
 use secrecy::SecretString;
@@ -59,17 +60,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let keypair_path = "REPLACE_WITH_KEYPAIR_PATH".to_string();
     let close_after_submit = false;
 
+    let keypair = read_keypair_file(keypair_path)?;
+    let http = reqwest::Client::builder().no_proxy().build()?;
+
+    // Register wallet (required for stream connection)
+    let api_client = ExitApiClient::with_api_key(SecretString::new(api_key.clone()))?;
+    let proof = prove_ownership(&keypair);
+    api_client.register_wallet(&proof, None).await?;
+
     let client = StreamClient::new(SecretString::new(api_key));
     let configure = StreamConfigure {
         wallet_pubkeys,
-        strategy: strategy_config_from_optional(None, None, None, None),
+        strategy: StrategyConfigBuilder::new()
+            .target_profit_pct(5.0)
+            .stop_loss_pct(1.5)
+            .take_profit_levels(vec![
+                TakeProfitLevelMsg { profit_pct: 3.0, sell_pct: 30.0, trailing_stop_pct: 0.0 },
+                TakeProfitLevelMsg { profit_pct: 5.0, sell_pct: 100.0, trailing_stop_pct: 1.0 },
+            ])
+            .build(),
         deadline_timeout_sec: 45,
         send_mode: None,
         tip_lamports: None,
     };
 
-    let keypair = read_keypair_file(keypair_path)?;
-    let http = reqwest::Client::builder().no_proxy().build()?;
     let mut session = StreamSession::connect(&client, configure).await?;
     let mut submissions = JoinSet::new();
 

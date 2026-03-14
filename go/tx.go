@@ -52,7 +52,7 @@ type SendTarget struct {
 	region string
 }
 
-// SendTargetDefaultRpc creates a send target using the Solana public mainnet-beta RPC.
+// SendTargetDefaultRpc creates a send target using the Solana public RPC.
 // Not recommended for production. Use SendTargetRpc with a private RPC URL.
 func SendTargetDefaultRpc() SendTarget {
 	return SendTarget{kind: sendTargetKindRpc, url: MainnetBetaRpcURL}
