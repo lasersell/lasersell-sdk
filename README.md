@@ -402,7 +402,7 @@ Yes, this is one of the best use cases for the SDK. LaserSell offloads the heavy
 
 ### What is the Exit Intelligence stream?
 
-The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit, stop-loss, and trailing-stop thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [full comparison](https://docs.lasersell.io/core-concepts/comparison-laser-sell-vs-standard-market-orders) and the [Stream documentation](https://docs.lasersell.io/api/stream/overview).
+The Exit Intelligence stream is not a regular WebSocket feed. It monitors your positions server-side against your take-profit, stop-loss, and trailing-stop thresholds and delivers ready-to-sign exit transactions the moment conditions are met. No polling, no client-side price math, no separate transaction building step. It is also superior to limit orders: limit orders sit passively and often get skipped entirely during rapid dumps because the price gaps right past them. The Exit Intelligence stream fires an immediate market swap the instant your trigger hits, using real-time on-chain data rather than stale API snapshots. Learn more in the [Stream documentation](https://docs.lasersell.io/api/stream/overview).
 
 ### What's the difference between the API client and the stream?
 
