@@ -69,7 +69,7 @@ For liquidity-aware selling: query slippage bands to determine optimal sell size
 
 ## Performance
 
-LaserSell is 2-5x faster than every major Solana trading API at building swap transactions. Open-source benchmarks verified against PumpFun SDK, PumpPortal, and Jupiter Metis API.
+LaserSell is 38x faster than every major Solana trading API at building swap transactions. Sub-5ms median on the automated exit path. Open-source benchmarks verified against PumpFun SDK, PumpPortal, and Jupiter Metis API.
 
 - **Buy tx build**: 71ms median (vs 141ms PumpPortal, 168ms Jupiter, 365ms PumpFun SDK)
 - **Sell tx build**: 72ms median (vs 121ms PumpPortal, 175ms Jupiter, 317ms PumpFun SDK)

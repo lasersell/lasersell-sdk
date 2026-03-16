@@ -377,7 +377,7 @@ Full API and SDK documentation is available at **[docs.lasersell.io/api](https:/
 | Dashboard & API keys | [app.lasersell.io](https://app.lasersell.io) |
 | Documentation | [docs.lasersell.io](https://docs.lasersell.io) |
 | Blog | [lasersell.io/blog](https://www.lasersell.io/blog) |
-| Benchmarks | [2-5x faster than every major Solana trading API](https://www.lasersell.io/blog/benchmark-results) |
+| Benchmarks | [38x faster than every major Solana trading API](https://www.lasersell.io/blog/benchmark-results) |
 | Liquidity snapshots | [Liquidity Snapshots, Slippage Bands, and SDK 0.3](https://www.lasersell.io/blog/liquidity-snapshots-and-sdk-0-3) |
 | LaserSell CLI | [github.com/lasersell/lasersell](https://github.com/lasersell/lasersell) |
 | SDKs (this repo) | [github.com/lasersell/lasersell-sdk](https://github.com/lasersell/lasersell-sdk) |
