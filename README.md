@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.lasersell.io/download"><strong>Download the Desktop App &rarr;</strong></a>
+</p>
+
+<p align="center">
   <a href="https://www.npmjs.com/package/@lasersell/lasersell-sdk"><img alt="npm" src="https://img.shields.io/npm/v/@lasersell/lasersell-sdk?label=npm&color=CB3837"></a>
   <a href="https://pypi.org/project/lasersell-sdk/"><img alt="PyPI" src="https://img.shields.io/pypi/v/lasersell-sdk?label=pypi&color=3775A9"></a>
   <a href="https://crates.io/crates/lasersell-sdk"><img alt="crates.io" src="https://img.shields.io/crates/v/lasersell-sdk?label=crates.io&color=dea584"></a>
